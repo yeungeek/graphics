@@ -26,7 +26,7 @@ set(CHAPTERS
 
 set(learnopengl
     1.getting_started/1.1.hello_window
-    1.getting_started/2.1.hello_triangle
+    1.getting_started/1.2.hello_triangle
 )
 
 set(thecherno
