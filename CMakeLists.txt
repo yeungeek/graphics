@@ -12,7 +12,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 set(GLAD_H ${CMAKE_SOURCE_DIR}/includes)
 set(GLFW_H /usr/local/include)
 include_directories(${GLAD_H} ${GLFW_H})
-
+include_directories(${CMAKE_SOURCE_DIR}/includes)
 
 # 添加目标链接
 set(GLFW_LINK /usr/local/lib/libglfw.3.dylib)
@@ -27,6 +27,7 @@ set(CHAPTERS
 set(learnopengl
     1.getting_started/1.1.hello_window
     1.getting_started/1.2.hello_triangle
+    1.getting_started/1.3.shaders
 )
 
 set(thecherno
@@ -36,13 +37,16 @@ set(thecherno
 add_library(GLAD "src/glad.c")
 set(LIBS ${LIBS} GLAD)
 
+macro(makeLink src dest target)
+  add_custom_command(TARGET ${target} POST_BUILD COMMAND ${CMAKE_COMMAND} -E create_symlink ${src} ${dest}  DEPENDS  ${dest} COMMENT "mklink ${src} -> ${dest}")
+endmacro()
 
 function(create_project_from_sources chapter demo)
     file(GLOB SOURCE
             "src/${chapter}/${demo}/*.h"
             "src/${chapter}/${demo}/*.cpp"
-            "src/${chapter}/${demo}/*.vs"
-            "src/${chapter}/${demo}/*.fs"
+            # "src/${chapter}/${demo}/*.vs"
+            # "src/${chapter}/${demo}/*.fs"
             "src/${chapter}/${demo}/*.gs"
     )
     
@@ -80,8 +84,24 @@ function(create_project_from_sources chapter demo)
         target_link_libraries(${target_name} ${LIBS})
     endforeach(v)
 
-    # add_executable(${NAME} ${SOURCE})
-    # target_link_libraries(${NAME} ${LIBS})
+    # copy shader files to build directory
+    file(GLOB SHADERS
+             "src/${chapter}/${demo}/*.vs"
+             "src/${chapter}/${demo}/*.fs"
+             "src/${chapter}/${demo}/*.gs"
+    )
+    foreach(SHADER ${SHADERS})
+        if(WIN32)
+            # configure_file(${SHADER} "test")
+            add_custom_command(TARGET ${NAME} PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy ${SHADER} $<TARGET_FILE_DIR:${NAME}>)
+        elseif(UNIX AND NOT APPLE)
+            file(COPY ${SHADER} DESTINATION ${CMAKE_SOURCE_DIR}/bin/${chapter})
+        elseif(APPLE)
+            # create symbolic link for *.vs *.fs *.gs
+            get_filename_component(SHADERNAME ${SHADER} NAME)
+            # makeLink(${SHADER} ${CMAKE_SOURCE_DIR}/bin/${chapter}/${SHADERNAME} ${NAME})
+        endif(WIN32)
+    endforeach(SHADER)
 
 endfunction()
 
