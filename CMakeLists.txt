@@ -41,11 +41,14 @@ set(1.getting_started
     2.3.hello_triangle_e1
     3.1.shaders_uniform
     3.2.shader_class
+    4.1.textures
 )
 
-# set(thecherno
-#     example
-# )
+configure_file(configuration/root_directory.h.in configuration/root_directory.h)
+include_directories(${CMAKE_BINARY_DIR}/configuration)
+
+add_library(STB_IMAGE "src/stb_image.cpp")
+set(LIBS ${LIBS} STB_IMAGE)
 
 add_library(GLAD "src/glad.c")
 set(LIBS ${LIBS} GLAD)
@@ -185,6 +188,7 @@ function(create_project_from_sources chapter demo)
         elseif(APPLE)
             # create symbolic link for *.vs *.fs *.gs
             get_filename_component(SHADERNAME ${SHADER} NAME)
+            message("SHADERNAME ${SHADERNAME} ${SHADER} ${NAME}")
             makeLink(${SHADER} ${CMAKE_SOURCE_DIR}/bin/${chapter}/${SHADERNAME} ${NAME})
         endif(WIN32)
     endforeach(SHADER)

@@ -41,8 +41,7 @@ int main()
         return -1;
     }
 
-    Shader ourShader("3.2.shader.vs", "3.2.shader.fs"); // you can name your shader files however you like
-
+    Shader ourShader("3.2.shader.vs", "3.2.shader.fs");
     float vertices[] = {
         // positions         // colors
          0.5f, -0.5f, 0.0f,  1.0f, 0.0f, 0.0f,  // bottom right
