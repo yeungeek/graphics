@@ -42,6 +42,7 @@ set(1.getting_started
     3.1.shaders_uniform
     3.2.shader_class
     4.1.textures
+    5.1.transformations
 )
 
 configure_file(configuration/root_directory.h.in configuration/root_directory.h)

@@ -43,8 +43,8 @@ int main()
         return -1;
     }
 
-    // Shader ourShader("4_1_texture.vs", "4_1_texture.fs");
-    Shader ourShader("3.2.shader.vs", "3.2.shader.fs");
+    Shader ourShader("4_1_texture.vs", "4_1_texture.fs");
+    // Shader ourShader("3.2.shader.vs", "3.2.shader.fs");
 
     float vertices[] =
         {
