@@ -43,6 +43,7 @@ set(1.getting_started
     3.2.shader_class
     4.1.textures
     5.1.transformations
+    6.1.coordinate_system
 )
 
 configure_file(configuration/root_directory.h.in configuration/root_directory.h)
