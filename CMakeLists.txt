@@ -44,6 +44,7 @@ set(1.getting_started
     4.1.textures
     5.1.transformations
     6.1.coordinate_system
+    6.2.coordinate_system_depth
 )
 
 configure_file(configuration/root_directory.h.in configuration/root_directory.h)
