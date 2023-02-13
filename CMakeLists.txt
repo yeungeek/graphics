@@ -45,6 +45,7 @@ set(1.getting_started
     5.1.transformations
     6.1.coordinate_system
     6.2.coordinate_system_depth
+    7.1.camera
 )
 
 configure_file(configuration/root_directory.h.in configuration/root_directory.h)
