@@ -29,9 +29,11 @@ include_directories(${CMAKE_SOURCE_DIR}/includes)
 set(GLFW_LINK /usr/local/lib/libglfw.3.dylib)
 link_libraries(${GLFW_LINK})
 
+link_directories(${CMAKE_SOURCE_DIR}/lib)
 # for
 set(CHAPTERS
     1.getting_started
+    3.model_loading
 )
 
 set(1.getting_started
@@ -46,6 +48,10 @@ set(1.getting_started
     6.1.coordinate_system
     6.2.coordinate_system_depth
     7.1.camera
+)
+
+set(3.model_loading
+    1.1.model_loading
 )
 
 configure_file(configuration/root_directory.h.in configuration/root_directory.h)
