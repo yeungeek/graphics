@@ -1,7 +1,0 @@
-[
-{
-  "directory": "/Users/jian.yang/sources/opengl/graphics/games101/Assignment0/build",
-  "command": "/usr/bin/clang++  -I/usr/local/include/eigen3 -g -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX11.3.sdk -o CMakeFiles/Transformation.dir/main.cpp.o -c /Users/jian.yang/sources/opengl/graphics/games101/Assignment0/main.cpp",
-  "file": "/Users/jian.yang/sources/opengl/graphics/games101/Assignment0/main.cpp"
-}
-]
