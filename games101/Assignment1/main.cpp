@@ -30,6 +30,21 @@ Eigen::Matrix4f get_model_matrix(float rotation_angle)
     // Then return it.
     //
     float angle = rotation_angle * MY_PI / 180;
+
+    // x axis
+    // model << 
+    //     1, 0, 0, 0,
+    //     0, cos(angle), -sin(angle), 0,
+    //     0, sin(angle), cos(angle), 0,
+    //     0, 0, 0, 1;
+
+    // y axis
+    // model << 
+    //     cos(angle), 0, sin(angle), 0,
+    //     0, 1, 0, 0,
+    //     -sin(angle), 0, cos(angle), 0,
+    //     0, 0, 0, 1;
+    // z axis
     model << 
         cos(angle), -sin(angle), 0, 0,
         sin(angle), cos(angle), 0, 0,
@@ -38,6 +53,32 @@ Eigen::Matrix4f get_model_matrix(float rotation_angle)
 
     return model;
 }
+
+Eigen::Matrix4f get_rotation(Vector3f axis, float rotation_angle)
+{
+    Eigen::Matrix4f model = Eigen::Matrix4f::Identity();
+
+    float angle = rotation_angle * MY_PI / 180;
+    float nx = axis[0];
+    float ny = axis[1];
+    float nz = axis[2];
+
+    Eigen::Matrix3f N;
+    N << 
+        0, -nx, ny,
+        nz, 0, -nx,
+        -ny,nx, 0;
+    Eigen::Matrix3f I = Eigen::Matrix3f::Identity();
+    Eigen::Matrix3f R = cos(angle) * I + (1 - cos(angle)) * axis * axis.transpose() + sin(angle) * N;
+
+    model <<
+        R(0,0),R(0,1),R(0,2),0,
+        R(1,0),R(1,1),R(1,2),0,
+        R(2,0),R(2,1),R(2,2),0,
+        0, 0, 0, 1;
+    return model;
+}
+
 
 Eigen::Matrix4f get_projection_matrix(float eye_fov, float aspect_ratio,
                                       float zNear, float zFar)
@@ -117,7 +158,10 @@ int main(int argc, const char **argv)
     {
         r.clear(rst::Buffers::Color | rst::Buffers::Depth);
 
-        r.set_model(get_model_matrix(angle));
+        // r.set_model(get_model_matrix(angle));
+        Vector3f axis = {10,5,-2};
+        r.set_model(get_rotation(axis,angle));
+
         r.set_view(get_view_matrix(eye_pos));
         r.set_projection(get_projection_matrix(45, 1, 0.1, 50));
 
@@ -145,7 +189,7 @@ int main(int argc, const char **argv)
         cv::imshow("image", image);
         key = cv::waitKey(10);
 
-        std::cout << "frame count: " << frame_count++ << '\n';
+        std::cout << "frame count: " << frame_count++ << ", key=" << key <<'\n';
 
         if (key == 'a')
         {
