@@ -42,7 +42,7 @@ public:
     vector<Vertex> vertices;
     vector<unsigned int> indices;
     vector<Texture> textures;
-    unsigned int VAO;
+    // unsigned int VAO;
     Mesh(vector<Vertex> vertices, vector<unsigned int> indices, vector<Texture> textures){
         this->vertices = vertices;
         this->indices = indices;

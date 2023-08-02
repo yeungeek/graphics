@@ -19,7 +19,11 @@ if(WIN32)
 	set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 endif(WIN32)
 
+# find_package(GLM REQUIRED)
+# message(STATUS "GLM included at ${GLM_INCLUDE_DIR}")
+
 # Header
+message("CMAKE DIR ${CMAKE_SOURCE_DIR}")
 set(GLAD_H ${CMAKE_SOURCE_DIR}/includes)
 set(GLFW_H /usr/local/include)
 include_directories(${GLAD_H} ${GLFW_H})
