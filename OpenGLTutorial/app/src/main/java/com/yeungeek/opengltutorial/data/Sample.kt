@@ -1,7 +1,9 @@
 package com.yeungeek.opengltutorial.data
 
+import java.io.Serializable
+
 data class Sample(
-    val id: Long,
+    val id: Int,
     val title: String,
     val body: String
-)
+) : Serializable

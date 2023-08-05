@@ -28,14 +28,14 @@ fun SampleItem(
     modifier: Modifier = Modifier,
     isOpened: Boolean = false,
     isSelected: Boolean = false,
-    navigateToDetail: (Long, String) -> Unit,
+    navigateToDetail: (Sample) -> Unit,
 ) {
     Card(
         modifier = modifier
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .semantics { selected = isSelected }
             .clip(CardDefaults.shape)
-            .clickable { navigateToDetail(sample.id, sample.title) },
+            .clickable { navigateToDetail(sample) },
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer
             else if (isOpened) MaterialTheme.colorScheme.secondaryContainer
@@ -59,12 +59,3 @@ fun SampleItem(
         }
     }
 }
-
-//@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
-//@Preview(showBackground = true)
-//@Composable
-//fun SampleItemPreview() {
-//    OpenGLTutorialTheme {
-//        SampleItem(Sample(1, "Title", "Body"))
-//    }
-//}
