@@ -10,22 +10,35 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 open class ShaderRenderer : Renderer {
+    private val nativeRender: ShaderNativeRender
+
     init {
         Log.d("DEBUG", "##### Renderer Init")
+        nativeRender = ShaderNativeRender()
+        nativeRender.native_Init()
     }
 
-    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        Log.d("DEBUG", "###### onSurfaceCreated")
-        GLES30.glClearColor(0f, 0f, 0f, 1f)
 
+    override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+        GLES30.glClearColor(0f, 0f, 0f, 1f)
+        nativeRender.native_OnSurfaceCreated()
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
-        Log.d("DEBUG", "###### onSurfaceChanged")
         GLES20.glViewport(0, 0, width, height)
+        nativeRender.native_OnSurfaceChanged(width,height)
     }
 
     override fun onDrawFrame(gl: GL10?) {
         GLES30.glClear(GL_DEPTH_BUFFER_BIT or GL_COLOR_BUFFER_BIT)
+        nativeRender.native_OnDrawFrame()
+    }
+
+    fun create() {
+        nativeRender.native_Init()
+    }
+
+    fun destroy() {
+        nativeRender.native_UnInit()
     }
 }
