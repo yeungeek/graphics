@@ -4,6 +4,7 @@
 
 #include "util/AndroidDebug.h"
 #include <jni.h>
+#include "sample/ShaderContext.h"
 
 #define NATIVE_CLASS_NAME "com/yeungeek/opengltutorial/renderer/ShaderNativeRender"
 #define NELEM(m) (sizeof(m) / sizeof((m)[0]))
@@ -13,26 +14,30 @@ extern "C" {
 #endif
 
 JNIEXPORT void JNICALL native_Init(JNIEnv *env, jobject thiz) {
-    LOGD("##### native Init");
+    LOGD("###### native Init");
+    ShaderContext::GetInstance();
 }
 
-JNIEXPORT void JNICALL native_UnInit(JNIEnv *env,jobject thiz){
-    LOGD("##### native UnInit");
+JNIEXPORT void JNICALL native_UnInit(JNIEnv *env, jobject thiz) {
+    LOGD("###### native UnInit");
+    ShaderContext::Destroy();
 }
 
-JNIEXPORT void JNICALL native_OnSurfaceCreated(JNIEnv *env,jobject thiz){
-    LOGD("##### native OnSurfaceCreated");
+JNIEXPORT void JNICALL native_OnSurfaceCreated(JNIEnv *env, jobject thiz) {
+    LOGD("###### native OnSurfaceCreated");
+    ShaderContext::GetInstance()->OnSurfaceCreated();
 }
 
 JNIEXPORT void JNICALL native_OnSurfaceChanged(JNIEnv *env,
                                                jobject thiz,
                                                jint width,
-                                               jint height){
-    LOGD("##### native OnSurfaceChanged");
+                                               jint height) {
+    LOGD("###### native OnSurfaceChanged");
+    ShaderContext::GetInstance()->OnSurfaceChanged(width, height);
 }
 
-JNIEXPORT void JNICALL native_OnDrawFrame(JNIEnv *env,jobject thiz){
-    LOGD("##### native OnDrawFrame");
+JNIEXPORT void JNICALL native_OnDrawFrame(JNIEnv *env, jobject thiz) {
+    ShaderContext::GetInstance()->OnDrawFrame();
 }
 
 #ifdef __cplusplus
@@ -68,11 +73,11 @@ static void UnregisterNatives(JNIEnv *env, const char *clazzName) {
 }
 
 static JNINativeMethod g_RenderMethods[] = {
-        {"native_Init", "()V", (void *) (native_Init)},
-        {"native_UnInit", "()V", (void *) (native_UnInit)},
-        {"native_OnSurfaceCreated", "()V", (void *) (native_OnSurfaceCreated)},
+        {"native_Init",             "()V",   (void *) (native_Init)},
+        {"native_UnInit",           "()V",   (void *) (native_UnInit)},
+        {"native_OnSurfaceCreated", "()V",   (void *) (native_OnSurfaceCreated)},
         {"native_OnSurfaceChanged", "(II)V", (void *) (native_OnSurfaceChanged)},
-        {"native_OnDrawFrame", "()V", (void *) (native_OnDrawFrame)},
+        {"native_OnDrawFrame",      "()V",   (void *) (native_OnDrawFrame)},
 };
 
 extern "C" jint JNI_OnLoad(JavaVM *vm, void *reserved) {
