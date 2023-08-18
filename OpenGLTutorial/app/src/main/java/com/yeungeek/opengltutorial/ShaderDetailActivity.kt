@@ -36,6 +36,7 @@ class ShaderDetailActivity : ComponentActivity() {
             }
     }
 
+    @Suppress("DEPRECATION")
     private fun <T : Serializable?> getSerializable(
         intent: Intent,
         name: String,

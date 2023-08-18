@@ -1,5 +1,3 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
-
 package com.yeungeek.opengltutorial.ui.components
 
 import android.annotation.SuppressLint
@@ -11,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.magnifier
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,7 +34,7 @@ import com.yeungeek.opengltutorial.renderer.ShaderRenderer
 @Composable
 fun SampleDetailScreen(sample: Sample, onBackPressed: () -> Unit) {
     val shaderRenderer = remember {
-        ShaderRenderer()
+        ShaderRenderer(sample)
     }
 
     Scaffold {

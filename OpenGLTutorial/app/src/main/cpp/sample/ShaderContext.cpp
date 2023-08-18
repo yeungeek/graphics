@@ -5,28 +5,39 @@
 #include "ShaderContext.h"
 #include "../util/AndroidDebug.h"
 
-ShaderContext *ShaderContext::sContext = nullptr;
+ShaderContext *ShaderContext::mContext = nullptr;
 
 ShaderContext::ShaderContext() {
+    LOGD("###### ShaderContext Constructor");
+}
+
+ShaderContext::ShaderContext(int id) {
+    LOGD("###### ShaderContext Constructor id: %d", id);
 
 }
 
 ShaderContext::~ShaderContext() {
-
+    LOGD("###### ShaderContext Destructor");
+    if (mBaseSample) {
+        delete mBaseSample;
+        mBaseSample = nullptr;
+    }
 }
 
-ShaderContext *ShaderContext::GetInstance() {
-    if (sContext == nullptr) {
-        sContext = new ShaderContext();
+ShaderContext *ShaderContext::GetInstance(int id) {
+    if (mContext == nullptr) {
+        LOGD("###### ShaderContext Create");
+        mContext = new ShaderContext(id);
     }
 
-    return sContext;
+    return mContext;
 }
 
 void ShaderContext::Destroy() {
-    if (sContext) {
-        delete sContext;
-        sContext = nullptr;
+    LOGD("###### ShaderContext Destroy");
+    if (mContext) {
+        delete mContext;
+        mContext = nullptr;
     }
 }
 

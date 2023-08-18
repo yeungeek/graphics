@@ -1,20 +1,18 @@
 package com.yeungeek.opengltutorial.renderer
 
-import android.opengl.GLES10.GL_COLOR_BUFFER_BIT
-import android.opengl.GLES10.GL_DEPTH_BUFFER_BIT
-import android.opengl.GLES20
-import android.opengl.GLES30
 import android.opengl.GLSurfaceView.Renderer
 import android.util.Log
+import com.yeungeek.opengltutorial.data.Sample
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-open class ShaderRenderer : Renderer {
+open class ShaderRenderer(sample: Sample) : Renderer {
     private val nativeRender: ShaderNativeRender
-
+    private val mSample:Sample
     init {
         Log.d("DEBUG", "##### Renderer Init")
         nativeRender = ShaderNativeRender()
+        mSample = sample
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -30,7 +28,7 @@ open class ShaderRenderer : Renderer {
     }
 
     fun create() {
-        nativeRender.native_Init()
+        nativeRender.native_Init(mSample.id)
     }
 
     fun destroy() {

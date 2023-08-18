@@ -13,9 +13,9 @@
 extern "C" {
 #endif
 
-JNIEXPORT void JNICALL native_Init(JNIEnv *env, jobject thiz) {
-    LOGD("###### native Init");
-    ShaderContext::GetInstance();
+JNIEXPORT void JNICALL native_Init(JNIEnv *env, jobject thiz, jint id) {
+    LOGD("###### native Init sample id:%d", id);
+    ShaderContext::GetInstance(id);
 }
 
 JNIEXPORT void JNICALL native_UnInit(JNIEnv *env, jobject thiz) {
@@ -73,7 +73,7 @@ static void UnregisterNatives(JNIEnv *env, const char *clazzName) {
 }
 
 static JNINativeMethod g_RenderMethods[] = {
-        {"native_Init",             "()V",   (void *) (native_Init)},
+        {"native_Init",             "(I)V",  (void *) (native_Init)},
         {"native_UnInit",           "()V",   (void *) (native_UnInit)},
         {"native_OnSurfaceCreated", "()V",   (void *) (native_OnSurfaceCreated)},
         {"native_OnSurfaceChanged", "(II)V", (void *) (native_OnSurfaceChanged)},
