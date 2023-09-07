@@ -28,6 +28,8 @@ project("shader-render")
 include_directories(
         util
         sample
+        sample/basic
+        third_party/glm
 )
 
 file(GLOB src-files

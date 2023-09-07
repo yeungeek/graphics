@@ -2,6 +2,7 @@
 // Created by jian.yang on 2023/8/10.
 //
 #include "stdint.h"
+#include <GLES3/gl3.h>
 
 #ifndef OPENGLTUTORIAL_BASESAMPLE_H
 #define OPENGLTUTORIAL_BASESAMPLE_H
@@ -12,7 +13,9 @@
 class BaseSample {
 public:
     BaseSample() {
-
+        mProgram = 0;
+        mVertexShaderId = 0;
+        mFragmentShaderId = 0;
     }
 
     virtual ~BaseSample() {}
@@ -25,7 +28,8 @@ public:
 
 protected:
     GLuint mProgram;
-
+    GLuint mVertexShaderId;
+    GLuint mFragmentShaderId;
 };
 
 #endif //OPENGLTUTORIAL_BASESAMPLE_H

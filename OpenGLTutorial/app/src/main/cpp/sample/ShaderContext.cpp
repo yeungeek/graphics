@@ -4,21 +4,23 @@
 
 #include "ShaderContext.h"
 #include "../util/AndroidDebug.h"
+#include "basic/TriangleSample.h"
 
 ShaderContext *ShaderContext::mContext = nullptr;
 
 ShaderContext::ShaderContext() {
     LOGD("###### ShaderContext Constructor");
+
 }
 
 ShaderContext::ShaderContext(int id) {
     LOGD("###### ShaderContext Constructor id: %d", id);
-
+    mBaseSample = new TriangleSample();
 }
 
 ShaderContext::~ShaderContext() {
     LOGD("###### ShaderContext Destructor");
-    if (mBaseSample) {
+    if (nullptr != mBaseSample) {
         delete mBaseSample;
         mBaseSample = nullptr;
     }
@@ -35,6 +37,9 @@ ShaderContext *ShaderContext::GetInstance(int id) {
 
 void ShaderContext::Destroy() {
     LOGD("###### ShaderContext Destroy");
+    if (mBaseSample) {
+        mBaseSample->OnDestroy();
+    }
     if (mContext) {
         delete mContext;
         mContext = nullptr;
@@ -44,14 +49,20 @@ void ShaderContext::Destroy() {
 void ShaderContext::OnSurfaceCreated() {
     LOGD("###### ShaderContext OnSurfaceCreated");
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-
+    if (mBaseSample) {
+        mBaseSample->OnCreate();
+    }
 }
 
 void ShaderContext::OnSurfaceChanged(int width, int height) {
     LOGD("###### ShaderContext OnSurfaceChanged,w=%d,h=%d", width, height);
     glViewport(0, 0, width, height);
+    mWidth = width;
+    mHeight = height;
 }
 
 void ShaderContext::OnDrawFrame() {
-    glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+    if (mBaseSample) {
+        mBaseSample->OnDraw(mWidth, mHeight);
+    }
 }

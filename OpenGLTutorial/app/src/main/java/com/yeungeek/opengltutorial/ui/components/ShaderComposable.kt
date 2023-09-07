@@ -11,6 +11,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.yeungeek.opengltutorial.renderer.ShaderGLSurfaceView
 import com.yeungeek.opengltutorial.renderer.ShaderRenderer
+import com.yeungeek.opengltutorial.renderer.TriangleRenderer
 
 @Composable
 fun GLShader(

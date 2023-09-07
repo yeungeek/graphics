@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.yeungeek.opengltutorial.data.Sample
 import com.yeungeek.opengltutorial.data.local.LocalSampleDataProvider
 import com.yeungeek.opengltutorial.renderer.ShaderRenderer
+import com.yeungeek.opengltutorial.renderer.TriangleRenderer
 
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,6 +36,7 @@ import com.yeungeek.opengltutorial.renderer.ShaderRenderer
 fun SampleDetailScreen(sample: Sample, onBackPressed: () -> Unit) {
     val shaderRenderer = remember {
         ShaderRenderer(sample)
+//        TriangleRenderer()
     }
 
     Scaffold {

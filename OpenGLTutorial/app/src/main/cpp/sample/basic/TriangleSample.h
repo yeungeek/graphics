@@ -8,7 +8,12 @@
 #include "../BaseSample.h"
 
 class TriangleSample : public BaseSample {
-
+public:
+    TriangleSample();
+    virtual ~TriangleSample();
+    virtual void OnCreate();
+    virtual void OnDraw(int width, int height);
+    virtual void OnDestroy();
 };
 
 #endif //OPENGLTUTORIAL_TRIANGLESAMPLE_H

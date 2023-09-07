@@ -16,7 +16,7 @@ class ShaderContext{
 public:
 
     static ShaderContext* GetInstance(int id);
-    static void Destroy();
+    void Destroy();
     void OnSurfaceCreated();
     void OnSurfaceChanged(int width, int height);
     void OnDrawFrame();
@@ -25,8 +25,8 @@ private:
     static ShaderContext *mContext;
 
     BaseSample *mBaseSample;
-    int sWidth;
-    int sHeight;
+    int mWidth;
+    int mHeight;
 };
 
 #endif //OPENGLTUTORIAL_SHADERCONTEXT_H

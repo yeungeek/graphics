@@ -12,20 +12,22 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+ShaderContext *context;
 
 JNIEXPORT void JNICALL native_Init(JNIEnv *env, jobject thiz, jint id) {
     LOGD("###### native Init sample id:%d", id);
-    ShaderContext::GetInstance(id);
+    context = ShaderContext::GetInstance(id);
 }
 
 JNIEXPORT void JNICALL native_UnInit(JNIEnv *env, jobject thiz) {
     LOGD("###### native UnInit");
-    ShaderContext::Destroy();
+    if (context)
+        context->Destroy();
 }
 
 JNIEXPORT void JNICALL native_OnSurfaceCreated(JNIEnv *env, jobject thiz) {
     LOGD("###### native OnSurfaceCreated");
-    ShaderContext::GetInstance()->OnSurfaceCreated();
+    context->OnSurfaceCreated();
 }
 
 JNIEXPORT void JNICALL native_OnSurfaceChanged(JNIEnv *env,
@@ -33,11 +35,11 @@ JNIEXPORT void JNICALL native_OnSurfaceChanged(JNIEnv *env,
                                                jint width,
                                                jint height) {
     LOGD("###### native OnSurfaceChanged");
-    ShaderContext::GetInstance()->OnSurfaceChanged(width, height);
+    context->OnSurfaceChanged(width, height);
 }
 
 JNIEXPORT void JNICALL native_OnDrawFrame(JNIEnv *env, jobject thiz) {
-    ShaderContext::GetInstance()->OnDrawFrame();
+    context->OnDrawFrame();
 }
 
 #ifdef __cplusplus
