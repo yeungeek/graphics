@@ -9,6 +9,7 @@
 
 #define SAMPLE_TYPE 1000
 #define SAMPLE_TYPE_TRIANGLE SAMPLE_TYPE + 1
+#define SAMPLE_TYPE_TRIANGLE_1 SAMPLE_TYPE + 2
 
 class BaseSample {
 public:

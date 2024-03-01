@@ -15,7 +15,18 @@ ShaderContext::ShaderContext() {
 
 ShaderContext::ShaderContext(int id) {
     LOGD("###### ShaderContext Constructor id: %d", id);
-    mBaseSample = new TriangleSample();
+    switch (id) {
+        case SAMPLE_TYPE_TRIANGLE:
+            mBaseSample = new TriangleSample();
+            break;
+        case SAMPLE_TYPE_TRIANGLE_1:
+//            mBaseSample
+            break;
+        default:
+            mBaseSample = new TriangleSample();
+            break;
+    }
+
 }
 
 ShaderContext::~ShaderContext() {
