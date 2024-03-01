@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         // Used to load the 'ch1_intro' library on application startup.
         init {
-            System.loadLibrary("ch1_intro")
+            System.loadLibrary("OpenXRIntro")
         }
     }
 }

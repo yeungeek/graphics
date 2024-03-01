@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.yeungeek.openxr.ch1_intro"
-    compileSdk = 33
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.yeungeek.openxr.ch1_intro"

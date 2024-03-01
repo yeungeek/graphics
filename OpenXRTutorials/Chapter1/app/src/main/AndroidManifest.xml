@@ -13,8 +13,13 @@
         android:theme="@style/Theme.Ch1Intro"
         tools:targetApi="31">
         <activity
-            android:name=".MainActivity"
+            android:name="android.app.NativeActivity"
             android:exported="true">
+
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="OpenXRIntro" />
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
