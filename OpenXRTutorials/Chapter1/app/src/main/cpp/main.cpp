@@ -27,6 +27,11 @@ struct engine {
 
     // sensor
     ASensorManager *sensorManager;
+    ASensor *accelerometer;
+    ASensorEventQueue *sensorEventQueue;
+
+    // animation
+    int animation;
 
 };
 
