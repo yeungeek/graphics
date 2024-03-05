@@ -21,5 +21,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         android
         native_app_glue
         EGL
-        android
+        GLESv3
         log)
