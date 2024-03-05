@@ -52,6 +52,7 @@ struct engine {
 static int engine_init_display(struct engine *engine) {
     LOGI("engine init display");
     // init config
+    // EGL Attrib
     const EGLint attribs[] = {
             EGL_SURFACE_TYPE, EGL_WINDOW_BIT,   // window type
             EGL_BLUE_SIZE, 8,
@@ -60,7 +61,9 @@ static int engine_init_display(struct engine *engine) {
             EGL_NONE
     };
 
+    // 系统窗口的宽度
     EGLint w;
+    // 系统窗口的高度
     EGLint h;
     EGLint dummy;
     EGLint format;
@@ -70,23 +73,32 @@ static int engine_init_display(struct engine *engine) {
     EGLContext context;
 
     // EGL display
+    // 1.得到系统默认的display
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+
+    // 2.EGL初始化
     eglInitialize(display, 0, 0);
+    // 3.从系统获取配置
     eglChooseConfig(display, attribs, &config, 1, &numConfigs);
     // EGL Attrib
     eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
 
+    // 4.设置窗口的缓冲区格式
     ANativeWindow_setBuffersGeometry(engine->app->window, 0, 0, format);
 
+    // 5.创建窗口, FrameBuffer
     surface = eglCreateWindowSurface(display, config, engine->app->window, NULL);
 
+    // 6.创建上下文
     context = eglCreateContext(display, config, NULL, NULL);
 
+    // 7.激活上下文
     if (EGL_FALSE == eglMakeCurrent(display, surface, surface, context)) {
         LOGW("eglMakeCurrent failed");
         return -1;
     }
 
+    // 8.查询窗口的大小
     eglQuerySurface(display, surface, EGL_WIDTH, &w);
     eglQuerySurface(display, surface, EGL_HEIGHT, &h);
 
@@ -99,6 +111,7 @@ static int engine_init_display(struct engine *engine) {
     engine->height = h;
 
     engine->state.angle = 0.0f;
+    engine->state.x = engine->width / 2;
 
     glHint(GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_FASTEST);
     glEnable(GL_CULL_FACE);
@@ -112,12 +125,20 @@ static void engine_draw_frame(struct engine *engine) {
         return;
     }
 
-    glClearColor(1, 0.0f, 0.0f, 1.0f);
+    glClearColor(((float) engine->state.x) / engine->width,
+                 engine->state.angle,
+                 ((float) engine->state.y) / engine->height,
+                 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    // 发送EGL 系统窗口绘图缓冲区到本地窗口
     eglSwapBuffers(engine->display, engine->surface);
 }
 
+/**
+ * 销毁 Display
+ * @param engine
+ */
 static void engine_term_display(struct engine *engine) {
     LOGI("engine term display");
     if (engine->display != EGL_NO_DISPLAY) {
@@ -142,6 +163,7 @@ static int32_t handle_input(struct android_app *app, AInputEvent *event) {
     LOGI("handle input");
     struct engine *engine = (struct engine *) app->userData;
 
+    // 按下触摸事件
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION) {
         engine->animating = 1;
         engine->state.x = AMotionEvent_getX(event, 0);
@@ -158,6 +180,7 @@ static void handle_cmd(struct android_app *app, int32_t cmd) {
 
     switch (cmd) {
         case APP_CMD_SAVE_STATE:
+            // 当前状态
             LOGI("APP_CMD_SAVE_STATE");
             engine->app->savedState = malloc(sizeof(struct saved_state));
 
@@ -165,6 +188,7 @@ static void handle_cmd(struct android_app *app, int32_t cmd) {
             engine->app->savedStateSize = sizeof(struct saved_state);
             break;
         case APP_CMD_INIT_WINDOW:
+            // 窗口初始化显示
             LOGI("APP_CMD_INIT_WINDOW");
             //window
             if (engine->app->window != NULL) {
@@ -178,6 +202,7 @@ static void handle_cmd(struct android_app *app, int32_t cmd) {
             engine_term_display(engine);
             break;
         case APP_CMD_GAINED_FOCUS:
+            // 应用程序获得焦点
             LOGI("APP_CMD_GAINED_FOCUS");
             //focus
             if (engine->accelerometer != NULL) {
@@ -222,9 +247,11 @@ void android_main(struct android_app *state) {
     state->userData = &engine;
 
     // handle cmd
+    // 处理应用程序命令的函数,重要函数
     state->onAppCmd = handle_cmd;
 
     // handle input
+    // 处理输入事件的函数
     state->onInputEvent = handle_input;
 
     engine.app = state;
@@ -250,11 +277,14 @@ void android_main(struct android_app *state) {
 
         struct android_poll_source *source;
         // poll
+        // android_app_entry
+        // 等待事件可用
         while ((ident = ALooper_pollAll(engine.animating ? 0 : -1,
                                         NULL,
                                         &events,
                                         (void **) &source)) >= 0) {
             if (source != NULL) {
+                // 处理应用程序主线程的命令
                 source->process(state, source);
             }
 
