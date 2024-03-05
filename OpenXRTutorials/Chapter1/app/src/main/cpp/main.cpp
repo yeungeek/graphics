@@ -108,7 +108,6 @@ static int engine_init_display(struct engine *engine) {
 }
 
 static void engine_draw_frame(struct engine *engine) {
-    LOGI("engine_draw_frame");
     if (engine->display == nullptr) {
         return;
     }
@@ -122,27 +121,31 @@ static void engine_draw_frame(struct engine *engine) {
 static void engine_term_display(struct engine *engine) {
     LOGI("engine term display");
     if (engine->display != EGL_NO_DISPLAY) {
-        if (engine->display != EGL_NO_DISPLAY) {
-            eglMakeCurrent(engine->display,
-                           EGL_NO_SURFACE,
-                           EGL_NO_SURFACE,
-                           EGL_NO_CONTEXT);
+        eglMakeCurrent(engine->display,
+                       EGL_NO_SURFACE,
+                       EGL_NO_SURFACE,
+                       EGL_NO_CONTEXT);
 
+        if (engine->context != EGL_NO_CONTEXT) {
+            eglDestroyContext(engine->display, engine->context);
         }
+
+        if (engine->surface != EGL_NO_SURFACE) {
+            eglDestroySurface(engine->display, engine->surface);
+        }
+
+        eglTerminate(engine->display);
     }
 }
 
 static int32_t handle_input(struct android_app *app, AInputEvent *event) {
+    LOGI("handle input");
     struct engine *engine = (struct engine *) app->userData;
 
     if (AInputEvent_getType(event) == AINPUT_EVENT_TYPE_MOTION) {
-        int32_t action = AMotionEvent_getAction(event);
-        if (action == AMOTION_EVENT_ACTION_DOWN) {
-            LOGI("AMOTION_EVENT_ACTION_DOWN");
-        } else if (action == AMOTION_EVENT_ACTION_UP) {
-
-        }
-
+        engine->animating = 1;
+        engine->state.x = AMotionEvent_getX(event, 0);
+        engine->state.y = AMotionEvent_getY(event, 0);
         return 1;
     }
 
