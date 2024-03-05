@@ -48,33 +48,87 @@ struct engine {
     struct saved_state state;
 };
 
-static void handle_cmd(struct android_app *app, int32_t cmd) {
-    struct engine *engine = (struct engine *) app->userData;
 
-    switch (cmd) {
-        case APP_CMD_INIT_WINDOW:
-            LOGI("APP_CMD_INIT_WINDOW");
-            break;
-        case APP_CMD_TERM_WINDOW:
-            LOGI("APP_CMD_TERM_WINDOW");
-            break;
-        case APP_CMD_STOP:
-            LOGI("APP_CMD_STOP");
-            break;
-        case APP_CMD_DESTROY:
-            break;
+static int engine_init_display(struct engine *engine) {
+    LOGI("engine init display");
+    // init config
+    const EGLint attribs[] = {
+            EGL_SURFACE_TYPE, EGL_WINDOW_BIT,   // window type
+            EGL_BLUE_SIZE, 8,
+            EGL_GREEN_SIZE, 8,
+            EGL_RED_SIZE, 8,
+            EGL_NONE
+    };
+
+    EGLint w;
+    EGLint h;
+    EGLint dummy;
+    EGLint format;
+    EGLint numConfigs;
+    EGLConfig config;
+    EGLSurface surface;
+    EGLContext context;
+
+    // EGL display
+    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    eglInitialize(display, 0, 0);
+    eglChooseConfig(display, attribs, &config, 1, &numConfigs);
+    // EGL Attrib
+    eglGetConfigAttrib(display, config, EGL_NATIVE_VISUAL_ID, &format);
+
+    ANativeWindow_setBuffersGeometry(engine->app->window, 0, 0, format);
+
+    surface = eglCreateWindowSurface(display, config, engine->app->window, NULL);
+
+    context = eglCreateContext(display, config, NULL, NULL);
+
+    if (EGL_FALSE == eglMakeCurrent(display, surface, surface, context)) {
+        LOGW("eglMakeCurrent failed");
+        return -1;
     }
-        case APP_CMD_INIT_WINDOW:
-            LOGI("APP_CMD_INIT_WINDOW");
-            break;
-        case APP_CMD_TERM_WINDOW:
-            LOGI("APP_CMD_TERM_WINDOW");
-            break;
-        case APP_CMD_STOP:
-            LOGI("APP_CMD_STOP");
-            break;
-        case APP_CMD_DESTROY:
-            break;
+
+    eglQuerySurface(display, surface, EGL_WIDTH, &w);
+    eglQuerySurface(display, surface, EGL_HEIGHT, &h);
+
+    LOGI("###### eglCreateWindowSurface w=%d, h=%d", w, h);
+
+    engine->display = display;
+    engine->context = context;
+    engine->surface = surface;
+    engine->width = w;
+    engine->height = h;
+
+    engine->state.angle = 0.0f;
+
+    glHint(GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_FASTEST);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+
+    return 0;
+}
+
+static void engine_draw_frame(struct engine *engine) {
+    LOGI("engine_draw_frame");
+    if (engine->display == nullptr) {
+        return;
+    }
+
+    glClearColor(1, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    eglSwapBuffers(engine->display, engine->surface);
+}
+
+static void engine_term_display(struct engine *engine) {
+    LOGI("engine term display");
+    if (engine->display != EGL_NO_DISPLAY) {
+        if (engine->display != EGL_NO_DISPLAY) {
+            eglMakeCurrent(engine->display,
+                           EGL_NO_SURFACE,
+                           EGL_NO_SURFACE,
+                           EGL_NO_CONTEXT);
+
+        }
     }
 }
 
@@ -88,23 +142,68 @@ static int32_t handle_input(struct android_app *app, AInputEvent *event) {
         } else if (action == AMOTION_EVENT_ACTION_UP) {
 
         }
+
+        return 1;
+    }
+
+    return 0;
+}
+
+
+static void handle_cmd(struct android_app *app, int32_t cmd) {
+    struct engine *engine = (struct engine *) app->userData;
+
+    switch (cmd) {
+        case APP_CMD_SAVE_STATE:
+            LOGI("APP_CMD_SAVE_STATE");
+            engine->app->savedState = malloc(sizeof(struct saved_state));
+
+            *((struct saved_state *) (engine->app->savedState)) = engine->state;
+            engine->app->savedStateSize = sizeof(struct saved_state);
+            break;
+        case APP_CMD_INIT_WINDOW:
+            LOGI("APP_CMD_INIT_WINDOW");
+            //window
+            if (engine->app->window != NULL) {
+                engine_init_display(engine);
+                engine_draw_frame(engine);
+            }
+            break;
+        case APP_CMD_TERM_WINDOW:
+            LOGI("APP_CMD_TERM_WINDOW");
+            // close window
+            engine_term_display(engine);
+            break;
+        case APP_CMD_GAINED_FOCUS:
+            LOGI("APP_CMD_GAINED_FOCUS");
+            //focus
+            if (engine->accelerometer != NULL) {
+                ASensorEventQueue_enableSensor(engine->sensorEventQueue, engine->accelerometer);
+
+                // event
+                ASensorEventQueue_setEventRate(engine->sensorEventQueue, engine->accelerometer,
+                                               (1000L / 60) * 1000);
+                // 60
+            }
+            break;
+        case APP_CMD_LOST_FOCUS:
+            LOGI("APP_CMD_LOST_FOCUS");
+            if (engine->accelerometer != NULL) {
+                ASensorEventQueue_disableSensor(engine->sensorEventQueue, engine->accelerometer);
+            }
+
+            engine->animating = 0;
+            engine_draw_frame(engine);
+            break;
+        case APP_CMD_STOP:
+            LOGI("APP_CMD_STOP");
+
+            break;
+        case APP_CMD_DESTROY:
+            break;
     }
 }
 
-
-static void engine_term_display(struct engine *engine) {
-    if (engine->display != EGL_NO_DISPLAY) {
-        EGLBoolean result;
-        result = eglMakeCurrent(engine->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-        LOGI("eglMakeCurrent result: %d", result);
-        result = eglTerminate(engine->display);
-        LOGI("eglTerminate result: %d", result);
-    }
-}
-
-static void engine_draw_frame(struct engine *engine) {
-
-}
 
 void android_main(struct android_app *state) {
     //android_main
@@ -162,8 +261,8 @@ void android_main(struct android_app *state) {
                     if (ASensorEventQueue_getEvents(engine.sensorEventQueue,
                                                     &event,
                                                     1) > 0) {
-                        LOGI("###### acceleration: x=%f, y=%f, z=%f",
-                             event.acceleration.x, event.acceleration.y, event.acceleration.z);
+//                        LOGI("###### acceleration: x=%f, y=%f, z=%f",
+//                             event.acceleration.x, event.acceleration.y, event.acceleration.z);
                     }
                 }
             }
