@@ -35,68 +35,83 @@ FetchContent_MakeAvailable(OpenXR)
 # XR_DOCS_TAG_END_FetchContent
 
 set(SOURCES
-        "main.cpp"
-        "../../../../../Common/GraphicsAPI.cpp"
-        "../../../../../Common/GraphicsAPI_OpenGL_ES.cpp"
-        "../../../../../Common/OpenXRDebugUtils.cpp"
+        main.cpp
+        ../../../../../Common/GraphicsAPI.cpp
+        ../../../../../Common/GraphicsAPI_D3D11.cpp
+        ../../../../../Common/GraphicsAPI_D3D12.cpp
+        ../../../../../Common/GraphicsAPI_OpenGL.cpp
+        ../../../../../Common/GraphicsAPI_OpenGL_ES.cpp
+        ../../../../../Common/GraphicsAPI_Vulkan.cpp
+        ../../../../../Common/OpenXRDebugUtils.cpp
 )
 
 set(HEADERS
-        "../../../../../Common/DebugOutput.h"
-        "../../../../../Common/GraphicsAPI.h"
-        "../../../../../Common/GraphicsAPI_OpenGL_ES.h"
-        "../../../../../Common/HelperFunctions.h"
-        "../../../../../Common/OpenXRDebugUtils.h"
-        "../../../../../Common/OpenXRHelper.h"
+        ../../../../../Common/DebugOutput.h
+        ../../../../../Common/GraphicsAPI.h
+        ../../../../../Common/GraphicsAPI_D3D11.h
+        ../../../../../Common/GraphicsAPI_D3D12.h
+        ../../../../../Common/GraphicsAPI_OpenGL.h
+        ../../../../../Common/GraphicsAPI_OpenGL_ES.h
+        ../../../../../Common/GraphicsAPI_Vulkan.h
+        ../../../../../Common/HelperFunctions.h
+        ../../../../../Common/OpenXRDebugUtils.h
+        ../../../../../Common/OpenXRHelper.h
 )
 
-if (ANDROID)
-    message("CMake Android")
-    add_library(${CMAKE_PROJECT_NAME} SHARED
-            # List C/C++ source files with relative paths to this CMakeLists.txt.
-            ${SOURCES} ${HEADERS})
+#if (ANDROID)
+message("CMake Android")
+add_library(${CMAKE_PROJECT_NAME} SHARED
+        # List C/C++ source files with relative paths to this CMakeLists.txt.
+        ${SOURCES} ${HEADERS})
 
-    target_include_directories(${PROJECT_NAME} PRIVATE
-            ../../../../../Common/
-            # openxr
-            "${openxr_SOURCE_DIR}/src/common"
-            "${openxr_SOURCE_DIR}/external/include"
-    )
+target_include_directories(${PROJECT_NAME} PRIVATE
+        ../../../../../Common/
+        # openxr
+        "${openxr_SOURCE_DIR}/src/common"
+        "${openxr_SOURCE_DIR}/external/include"
+)
 
-    # export onCreate
-    set_property(TARGET ${PROJECT_NAME}
-            APPEND_STRING
-            PROPERTY LINK_FLAGS "-u ANativeActivity_onCreate"
-    )
+# export onCreate
+set_property(TARGET ${PROJECT_NAME}
+        APPEND_STRING
+        PROPERTY LINK_FLAGS "-u ANativeActivity_onCreate"
+)
 
-    # native_app_glue
-    include(AndroidNdkModules)
-    android_ndk_import_module_native_app_glue()
+# native_app_glue
+include(AndroidNdkModules)
+android_ndk_import_module_native_app_glue()
 
-    target_link_libraries(${PROJECT_NAME} android native_app_glue openxr_loader)
-    target_compile_options(${PROJECT_NAME} PRIVATE -Wno-cast-calling-convention)
+target_link_libraries(${PROJECT_NAME}
+                        android
+                        native_app_glue
+                        openxr_loader
+                        EGL
+                        GLESv3
+                        log)
 
-    AddGraphicsAPIDefine(${PROJECT_NAME})
+target_compile_options(${PROJECT_NAME} PRIVATE -Wno-cast-calling-convention)
 
-    # XR_DOCS_TAG_BEGIN_VulkanNDK
-    # VulkanNDK
-    find_library(vulkan-lib vulkan)
-    if (vulkan-lib)
-        target_include_directories(${PROJECT_NAME} PUBLIC ${ANDROID_NDK}/sources/third_party/vulkan/src/include)
-        target_link_libraries(${PROJECT_NAME} ${vulkan-lib})
-        target_compile_definitions(${PROJECT_NAME} PUBLIC XR_TUTORIAL_USE_VULKAN)
-    endif()
-    # XR_DOCS_TAG_END_VulkanNDK
+AddGraphicsAPIDefine(${PROJECT_NAME})
 
-    # XR_DOCS_TAG_BEGIN_Gfxwrapper
-    include(../../../../../cmake/gfxwrapper.cmake)
-    if(TARGET openxr-gfxwrapper)
-        target_link_libraries(${PROJECT_NAME} openxr-gfxwrapper)
-        target_compile_definitions(${PROJECT_NAME} PUBLIC XR_TUTORIAL_USE_OPENGL_ES)
-
-    endif()
-    # XR_DOCS_TAG_END_Gfxwrapper
+# XR_DOCS_TAG_BEGIN_VulkanNDK
+# VulkanNDK
+find_library(vulkan-lib vulkan)
+if (vulkan-lib)
+    target_include_directories(${PROJECT_NAME} PUBLIC ${ANDROID_NDK}/sources/third_party/vulkan/src/include)
+    target_link_libraries(${PROJECT_NAME} ${vulkan-lib})
+    target_compile_definitions(${PROJECT_NAME} PUBLIC XR_TUTORIAL_USE_VULKAN)
 endif ()
+# XR_DOCS_TAG_END_VulkanNDK
+
+# XR_DOCS_TAG_BEGIN_Gfxwrapper
+include(../../../../../cmake/gfxwrapper.cmake)
+if (TARGET openxr-gfxwrapper)
+    target_link_libraries(${PROJECT_NAME} openxr-gfxwrapper)
+    target_compile_definitions(${PROJECT_NAME} PUBLIC XR_TUTORIAL_USE_OPENGL_ES)
+
+endif ()
+# XR_DOCS_TAG_END_Gfxwrapper
+#endif ()
 
 # Add native_app_glue
 #add_library(native_app_glue STATIC
