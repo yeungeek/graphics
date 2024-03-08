@@ -16,6 +16,7 @@
 // XR_DOCS_TAG_END_include_OpenXRDebugUtils
 
 #include <android/log.h>
+
 #define LOGI(...) \
 ((void)__android_log_print( ANDROID_LOG_INFO, "native", __VA_ARGS__ ))
 
@@ -24,7 +25,7 @@
 
 class OpenXRTutorial {
 public:
-    OpenXRTutorial(GraphicsAPI_Type apiType) {
+    OpenXRTutorial(GraphicsAPI_Type apiType) : m_apiType(apiType) {
         XR_TUT_LOG("###### OpenXRTutorial")
     }
 
@@ -33,7 +34,16 @@ public:
     }
 
     void Run() {
-        PollSystemEvents();
+        CreateInstance();
+        CreateDebugMessenger();
+
+        GetInstanceProperties();
+        GetSystemID();
+
+        DestroyDebugMessenger();
+        DestroyInstance();
+
+//        PollSystemEvents();
     }
 
 public:
@@ -70,6 +80,30 @@ public:
     }
 
 private:
+    void CreateInstance() {
+        XR_TUT_LOG("###### CreateInstance")
+    }
+
+    void DestroyInstance() {
+        XR_TUT_LOG("###### DestroyInstance")
+    }
+
+    void CreateDebugMessenger() {
+        XR_TUT_LOG("###### CreateDebugMessenger")
+    }
+
+    void DestroyDebugMessenger() {
+        XR_TUT_LOG("###### DestroyDebugMessenger")
+    }
+
+    void GetInstanceProperties() {
+        XR_TUT_LOG("###### GetInstanceProperties")
+    }
+
+    void GetSystemID() {
+        XR_TUT_LOG("###### GetSystemID")
+    }
+
     void PollSystemEvents() {
         XR_TUT_LOG("###### PollSystemEvents")
 
@@ -84,8 +118,9 @@ private:
             int events = 0;
 
             // The timeout depends on whether the application is active.
-            const int timeoutMilliseconds = (!androidAppState.resumed && !m_sessionRunning && androidApp->destroyRequested == 0) ? -1 : 0;
-            LOGI("###### timeoutMilliseconds: %d",timeoutMilliseconds);
+            const int timeoutMilliseconds = (!androidAppState.resumed && !m_sessionRunning &&
+                                             androidApp->destroyRequested == 0) ? -1 : 0;
+            LOGI("###### timeoutMilliseconds: %d", timeoutMilliseconds);
             if (ALooper_pollAll(timeoutMilliseconds, nullptr, &events, (void **) &source) >= 0) {
                 XR_TUT_LOG("###### ALooper_pollAll")
                 if (source != nullptr) {
@@ -101,6 +136,20 @@ private:
 private:
     bool m_applicationRunning = true;
     bool m_sessionRunning = false;
+
+    XrInstance m_xrInstance = XR_NULL_HANDLE;
+    std::vector<const char *> m_activeAPILayers = {};
+    std::vector<const char *> m_activeInstanceExtensions = {};
+    std::vector<std::string> m_apiLayers = {};
+    std::vector<std::string> m_instanceExtensions = {};
+
+    XrDebugUtilsMessengerEXT m_debugUtilsMessenger = {};
+
+    XrFormFactor m_formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    XrSystemId m_systemID = {};
+    XrSystemProperties m_systemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
+
+    GraphicsAPI_Type m_apiType = UNKNOWN;
 };
 
 void OpenXRTutorialMain(GraphicsAPI_Type apiType) {
@@ -124,8 +173,8 @@ void android_main(struct android_app *app) {
 
     XrResult m_procAddr = xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
                                                 (PFN_xrVoidFunction *) &xrInitializeLoaderKHR);
-    LOGI("###### xrGetInstanceProcAddr: %d",m_procAddr);
-    OPENXR_CHECK(m_procAddr,"Failed to xrGetInstanceProcAddr")
+    LOGI("###### xrGetInstanceProcAddr: %d", m_procAddr);
+    OPENXR_CHECK(m_procAddr, "Failed to xrGetInstanceProcAddr")
 
     // Fill out an XrLoaderInitInfoAndroidKHR structure and initialize the loader for Android.
     if (!xrInitializeLoaderKHR) {
@@ -136,9 +185,10 @@ void android_main(struct android_app *app) {
     loaderInitializeInfoAndroid.applicationVM = app->activity->vm;
     loaderInitializeInfoAndroid.applicationContext = app->activity->clazz;
 
-    XrResult m_xrLoaderKHR = xrInitializeLoaderKHR((XrLoaderInitInfoBaseHeaderKHR *) &loaderInitializeInfoAndroid);
-    LOGI("###### xrInitializeLoaderKHR: %d",m_xrLoaderKHR);
-    OPENXR_CHECK(m_xrLoaderKHR,"Failed to initialize Loader for Android");
+    XrResult m_xrLoaderKHR = xrInitializeLoaderKHR(
+            (XrLoaderInitInfoBaseHeaderKHR *) &loaderInitializeInfoAndroid);
+    LOGI("###### xrInitializeLoaderKHR: %d", m_xrLoaderKHR);
+    OPENXR_CHECK(m_xrLoaderKHR, "Failed to initialize Loader for Android");
 
     app->userData = &OpenXRTutorial::androidAppState;
     app->onAppCmd = OpenXRTutorial::AndroidAppHandleCmd;

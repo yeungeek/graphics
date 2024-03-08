@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.yeungeek.openxr.ch12_setup"
+    namespace = "com.yeungeek.openxr.ch2_setup"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.yeungeek.openxr.ch12_setup"
+        applicationId = "com.yeungeek.openxr.ch2_setup"
         minSdk = 24
         targetSdk = 33
         versionCode = 1
