@@ -59,7 +59,7 @@ set(HEADERS
 )
 
 #if (ANDROID)
-message("CMake Android")
+message("CMake Android: ${openxr_SOURCE_DIR}")
 add_library(${CMAKE_PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         ${SOURCES} ${HEADERS})
