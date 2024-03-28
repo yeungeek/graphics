@@ -20,6 +20,13 @@ android {
         ndk {
             abiFilters.add("arm64-v8a")
         }
+
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-DDEFAULT_GRAPHICS_PLUGIN_OPENGLES")
+            }
+        }
     }
     buildTypes {
         release {
@@ -44,6 +51,7 @@ android {
             version = "3.22.1"
         }
     }
+
     buildFeatures {
         viewBinding = true
     }
