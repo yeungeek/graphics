@@ -1,6 +1,9 @@
 //
 // Created by jian.yang on 2024/3/29.
 //
+#include <string.h>
+#include <iostream>
+
 #include "common/logger.h"
 #include "common/common.h"
 
@@ -12,5 +15,7 @@
 
 extern "C"
 void android_main(struct android_app *app) {
-
+    Log::Write(Log::Level::Info, "###### main");
+    JNIEnv *Env;
+    app->activity->vm->AttachCurrentThread(&Env, nullptr);
 }
