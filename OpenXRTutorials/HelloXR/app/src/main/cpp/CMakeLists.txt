@@ -8,19 +8,7 @@ message("CMake Binary: ${CMAKE_CURRENT_BINARY_DIR}")
 message("NDK Path: ${ANDROID_NDK}")
 
 if(ANDROID)
-    add_definitions(-DXR_USE_PLATFORM_ANDROID)
-
-    set(HELLOXR_DEFAULT_GRAPHICS_PLUGIN "OpenGLES" CACHE STRING "Which graphics plugin should be used by default for Hello XR artifacts?")
-    # These are the recognized options: provide them as a helper in the CMake GUI
-    set_property(CACHE HELLOXR_DEFAULT_GRAPHICS_PLUGIN PROPERTY STRINGS "OpenGLES" "Vulkan")
-
-#    if(HELLOXR_DEFAULT_GRAPHICS_PLUGIN STREQUAL "OpenGLES")
-#        message(STATUS "hello_xr will default to OpenGL ES graphics plugin")
-#        target_compile_definitions(${PROJECT_NAME} PRIVATE DEFAULT_GRAPHICS_PLUGIN_OPENGLES)
-#    elseif(HELLOXR_DEFAULT_GRAPHICS_PLUGIN STREQUAL "Vulkan")
-#        message(STATUS "hello_xr will default to Vulkan graphics plugin")
-#        target_compile_definitions(${PROJECT_NAME} PRIVATE DEFAULT_GRAPHICS_PLUGIN_VULKAN)
-#    endif()
+    add_definitions(-DXR_USE_PLATFORM_ANDROID -DXR_USE_GRAPHICS_API_OPENGL_ES)
 endif()
 
 include(FetchContent)
@@ -47,15 +35,19 @@ FetchContent_MakeAvailable(OpenXR)
 file(GLOB LOCAL_HEADERS "common/*.h")
 file(GLOB LOCAL_SOURCE "common/*.cpp")
 
+
 set(SOURCES
         main.cpp
         ${LOCAL_SOURCE}
+)
+
+set(HEADERS
         ${LOCAL_HEADERS}
 )
 
 add_library(${PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
-        ${SOURCES})
+        ${SOURCES} ${HEADERS})
 
 # export onCreate
 set_property(TARGET ${PROJECT_NAME}
@@ -66,6 +58,10 @@ set_property(TARGET ${PROJECT_NAME}
 # native_app_glue
 include(AndroidNdkModules)
 android_ndk_import_module_native_app_glue()
+
+if(TARGET openxr-gfxwrapper)
+    target_link_libraries(${PROJECT_NAME} openxr-gfxwrapper)
+endif()
 
 target_link_libraries(${PROJECT_NAME} OpenXR::openxr_loader)
 target_link_libraries(${PROJECT_NAME} ${ANDROID_LIBRARY} ${ANDROID_LOG_LIBRARY})
@@ -79,6 +75,6 @@ target_link_libraries(${PROJECT_NAME}
 target_include_directories(${PROJECT_NAME}
         PRIVATE
         "openxr/src"
-        "${openxr_SOURCE_DIR}/src/common"
+        "${openxr_SOURCE_DIR}/src"
         "${openxr_SOURCE_DIR}/external/include"
 )
