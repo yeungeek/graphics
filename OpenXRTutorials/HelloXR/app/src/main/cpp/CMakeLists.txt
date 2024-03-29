@@ -5,6 +5,7 @@ project("${PROJECT_NAME}")
 
 message("CMake Project Name: ${PROJECT_NAME}")
 message("CMake Binary: ${CMAKE_CURRENT_BINARY_DIR}")
+message("NDK Path: ${ANDROID_NDK}")
 
 if(ANDROID)
     add_definitions(-DXR_USE_PLATFORM_ANDROID)
@@ -55,6 +56,12 @@ set(SOURCES
 add_library(${PROJECT_NAME} SHARED
         # List C/C++ source files with relative paths to this CMakeLists.txt.
         ${SOURCES})
+
+# export onCreate
+set_property(TARGET ${PROJECT_NAME}
+        APPEND_STRING
+        PROPERTY LINK_FLAGS "-u ANativeActivity_onCreate"
+)
 
 # native_app_glue
 include(AndroidNdkModules)
