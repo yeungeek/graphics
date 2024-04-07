@@ -38,7 +38,7 @@ file(GLOB LOCAL_SOURCE "common/*.cpp")
 
 #main.cpp
 set(SOURCES
-        intro.cpp
+        setup.cpp
         ${LOCAL_SOURCE}
 )
 
