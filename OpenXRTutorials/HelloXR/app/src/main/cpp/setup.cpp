@@ -9,6 +9,7 @@
 #include "common/common.h"
 #include "openxr/openxr_platform.h"
 #include "common/openxr_helper.h"
+#include "common/openxr_debugutils.h"
 
 #include <android/log.h>
 #include <android_native_app_glue.h>
@@ -28,10 +29,12 @@ namespace Chapter2 {
         void Run() {
             Log::Write(Log::Level::Info, "###### OpenXR Tutorial Run");
             CreateInstance();
+            CreateDebugMessenger();
 
             GetInstanceProperties();
             GetSystemID();
 
+            DestroyDebugMessenger();
             DestroyInstance();
         }
 
@@ -83,22 +86,64 @@ namespace Chapter2 {
                 }
             }
         }
-        // XR_DOCS_TAG_END_Android_System_Functionality1
+        // XR_DOCS_TAG_END_Android_System_Functionality
 
     private:
         void CreateInstance() {
+            //Android create instance
+            std::vector<const char*> extensions;
+            const std::vector<std::string> platformExtensions = {XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME};
+            std::transform(platformExtensions.begin(), platformExtensions.end(), std::back_inserter(extensions),
+                           [](const std::string& ext) { return ext.c_str(); });
+
+            const std::vector<std::string> graphicsExtensions = {XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME};
+            std::transform(graphicsExtensions.begin(), graphicsExtensions.end(), std::back_inserter(extensions),
+                           [](const std::string& ext) { return ext.c_str(); });
+
+            //2. Create Instance
+            XrInstanceCreateInfo instanceCI{XR_TYPE_INSTANCE_CREATE_INFO};
+            XrInstanceCreateInfoAndroidKHR instanceCreateInfoAndroid{XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
+            instanceCreateInfoAndroid.applicationVM = androidApp->activity->vm;
+            instanceCreateInfoAndroid.applicationActivity = androidApp->activity->clazz;
+
+            instanceCI.next = (XrBaseInStructure*)&instanceCreateInfoAndroid;
+            instanceCI.enabledExtensionCount = (uint32_t)extensions.size();
+            instanceCI.enabledExtensionNames = extensions.data();
+
+            strcpy(instanceCI.applicationInfo.applicationName, "HelloXR");
+            instanceCI.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+
+            OPENXR_CHECK(xrCreateInstance(&instanceCI, &m_xrInstance), "Failed to create Instance.")
+        }
+
+        void CreateDebugMessenger(){
+            if (IsStringInVector(m_activeInstanceExtensions, XR_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+                m_debugUtilsMessenger = CreateOpenXRDebugUtilsMessenger(m_xrInstance);
+            }
+        }
+
+        void DestroyDebugMessenger() {
+            if (m_debugUtilsMessenger != XR_NULL_HANDLE) {
+                DestroyOpenXRDebugUtilsMessenger(m_xrInstance, m_debugUtilsMessenger);
+            }
         }
 
         void GetInstanceProperties() {
-
+            XrInstanceProperties instanceProperties{XR_TYPE_INSTANCE_PROPERTIES};
+            OPENXR_CHECK(xrGetInstanceProperties(m_xrInstance, &instanceProperties), "Failed to get Instance Properties.")
+            Log::Write(Log::Level::Info,Fmt("###### Instance Name: %s", instanceProperties.runtimeName));
         }
 
-        void GetSystemID(){
+        void GetSystemID() {
+            XrSystemGetInfo systemGetInfo{XR_TYPE_SYSTEM_GET_INFO};
+            systemGetInfo.formFactor = m_formFactor;
+            OPENXR_CHECK(xrGetSystem(m_xrInstance, &systemGetInfo, &m_systemID),"Failed to get SystemID.")
 
+            OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemID, &m_systemProperties), "Failed to get System Properties.")
         }
 
-        void DestroyInstance(){
-
+        void DestroyInstance() {
+            OPENXR_CHECK(xrDestroyInstance(m_xrInstance), "Failed to destroy Instance.")
         }
 
         void PollSystemEvents() {
@@ -131,7 +176,18 @@ namespace Chapter2 {
         bool m_applicationRunning = true;
         bool m_sessionRunning = false;
 
-        XrInstance m_xrInstance = XR_NULL_HANDLE;
+        XrInstance m_xrInstance = {};
+
+        std::vector<const char *> m_activeInstanceExtensions = {};
+        std::vector<const char *> m_activeAPILayers = {};
+        std::vector<std::string> m_apiLayers = {};
+        std::vector<std::string> m_instanceExtensions = {};
+
+        XrDebugUtilsMessengerEXT m_debugUtilsMessenger = XR_NULL_HANDLE;
+
+        XrFormFactor m_formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+        XrSystemId m_systemID = {};
+        XrSystemProperties m_systemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
     };
 
 
@@ -157,7 +213,7 @@ namespace Chapter2 {
         PFN_xrInitializeLoaderKHR initializeLoader = nullptr;
 
 
-        //1. instance
+
         OPENXR_CHECK(xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
                                            (PFN_xrVoidFunction *) &initializeLoader),
                      "Failed to get InstanceProcAddr for xrInitializeLoaderKHR.")
@@ -166,6 +222,7 @@ namespace Chapter2 {
             return;
         }
 
+        //1. init loader
         XrLoaderInitInfoAndroidKHR loaderInitializeInfoAndroid{
                 XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};
         loaderInitializeInfoAndroid.applicationVM = app->activity->vm;

@@ -35,7 +35,6 @@ FetchContent_MakeAvailable(OpenXR)
 file(GLOB LOCAL_HEADERS "common/*.h")
 file(GLOB LOCAL_SOURCE "common/*.cpp")
 
-
 #main.cpp
 set(SOURCES
         setup.cpp
