@@ -10,6 +10,9 @@
 #include "openxr/openxr_platform.h"
 #include "common/openxr_helper.h"
 #include "common/openxr_debugutils.h"
+#include "common/geometry.h"
+
+#include <common/gfxwrapper_opengl.h>
 
 #include <android/log.h>
 #include <android_native_app_glue.h>
@@ -18,6 +21,32 @@
 #include <sys/system_properties.h>
 
 namespace Chapter2 {
+    // The version statement has come on first line.
+    static const char* VertexShaderGlsl = R"_(#version 320 es
+
+    in vec3 VertexPos;
+    in vec3 VertexColor;
+
+    out vec3 PSVertexColor;
+
+    uniform mat4 ModelViewProjection;
+
+    void main() {
+       gl_Position = ModelViewProjection * vec4(VertexPos, 1.0);
+       PSVertexColor = VertexColor;
+    }
+    )_";
+
+// The version statement has come on first line.
+    static const char* FragmentShaderGlsl = R"_(#version 320 es
+
+    in lowp vec3 PSVertexColor;
+    out lowp vec4 FragColor;
+
+    void main() {
+       FragColor = vec4(PSVertexColor, 1);
+    }
+    )_";
 //class
     class OpenXRTutorial {
     public:
@@ -33,6 +62,10 @@ namespace Chapter2 {
 
             GetInstanceProperties();
             GetSystemID();
+
+            InitializeDevice();
+            CreateSession();
+            DestroySession();
 
             DestroyDebugMessenger();
             DestroyInstance();
@@ -122,10 +155,144 @@ namespace Chapter2 {
             }
         }
 
+        void InitializeDevice(){
+            Log::Write(Log::Level::Info,"###### InitializeDevice Start");
+            PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetOpenGLESGraphicsRequirementsKHR = nullptr;
+            OPENXR_CHECK(xrGetInstanceProcAddr(m_xrInstance, "xrGetOpenGLESGraphicsRequirementsKHR",
+                                                 reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetOpenGLESGraphicsRequirementsKHR)),
+                           "Failed to get xrGetOpenGLESGraphicsRequirementsKHR function pointer.")
+            XrGraphicsRequirementsOpenGLESKHR graphicsRequirements{XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR};
+            OPENXR_CHECK(pfnGetOpenGLESGraphicsRequirementsKHR(m_xrInstance, m_systemID, &graphicsRequirements),
+                           "Failed to get OpenGL ES graphics requirements.")
+
+            Log::Write(Log::Level::Info,"###### InitializeDevice Starting");
+            // Init the gl extensions
+            ksDriverInstance driverInstance{};
+            ksGpuQueueInfo queueInfo{};
+
+            ksGpuSurfaceColorFormat colorFormat{KS_GPU_SURFACE_COLOR_FORMAT_B8G8R8A8};
+            ksGpuSurfaceDepthFormat depthFormat{KS_GPU_SURFACE_DEPTH_FORMAT_D24};
+            ksGpuSampleCount sampleCount{KS_GPU_SAMPLE_COUNT_1};
+            if (!ksGpuWindow_Create(&window, &driverInstance, &queueInfo, 0, colorFormat, depthFormat, sampleCount, 640, 480, false)) {
+                THROW("Unable to create GL context");
+            }
+
+            GLint major = 0;
+            GLint minor = 0;
+            glGetIntegerv(GL_MAJOR_VERSION, &major);
+            glGetIntegerv(GL_MINOR_VERSION, &minor);
+
+            const XrVersion desiredApiVersion = XR_MAKE_VERSION(major, minor, 0);
+            if(graphicsRequirements.minApiVersionSupported > desiredApiVersion){
+                THROW("Runtime does not support desired Graphics API and/or version")
+            }
+
+            m_contextApiMajorVersion = major;
+
+            m_graphicsBinding.display = window.display;
+            m_graphicsBinding.config = (EGLConfig)0;
+            m_graphicsBinding.context = window.context.context;
+
+            glEnable(GL_DEBUG_OUTPUT);
+            glDebugMessageCallback(
+                    [](GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message,
+                       const void* userParam) {
+                        Log::Write(Log::Level::Info, "###### GLES Debug: " + std::string(message, 0, length));
+                    },
+                    this);
+
+            // Initialize the resources
+            InitializeResources();
+        }
+
+        void InitializeResources() {
+            Log::Write(Log::Level::Info,"###### InitializeResources Start");
+            glGenFramebuffers(1, &m_swapchainFramebuffer);
+
+            GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+            glShaderSource(vertexShader, 1, &VertexShaderGlsl, nullptr);
+            glCompileShader(vertexShader);
+            CheckShader(vertexShader);
+
+            GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+            glShaderSource(fragmentShader, 1, &FragmentShaderGlsl, nullptr);
+            glCompileShader(fragmentShader);
+            CheckShader(fragmentShader);
+
+            m_program = glCreateProgram();
+            glAttachShader(m_program, vertexShader);
+            glAttachShader(m_program, fragmentShader);
+            glLinkProgram(m_program);
+            CheckProgram(m_program);
+
+            glDeleteShader(vertexShader);
+            glDeleteShader(fragmentShader);
+
+            m_modelViewProjectionUniformLocation = glGetUniformLocation(m_program, "ModelViewProjection");
+
+            m_vertexAttribCoords = glGetAttribLocation(m_program, "VertexPos");
+            m_vertexAttribColor = glGetAttribLocation(m_program, "VertexColor");
+
+            glGenBuffers(1, &m_cubeVertexBuffer);
+            glBindBuffer(GL_ARRAY_BUFFER, m_cubeVertexBuffer);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(Geometry::c_cubeVertices), Geometry::c_cubeVertices, GL_STATIC_DRAW);
+
+            glGenBuffers(1, &m_cubeIndexBuffer);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIndexBuffer);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Geometry::c_cubeIndices), Geometry::c_cubeIndices, GL_STATIC_DRAW);
+
+            glGenVertexArrays(1, &m_vao);
+            glBindVertexArray(m_vao);
+            glEnableVertexAttribArray(m_vertexAttribCoords);
+            glEnableVertexAttribArray(m_vertexAttribColor);
+            glBindBuffer(GL_ARRAY_BUFFER, m_cubeVertexBuffer);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIndexBuffer);
+            glVertexAttribPointer(m_vertexAttribCoords, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex), nullptr);
+            glVertexAttribPointer(m_vertexAttribColor, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex),
+                                  reinterpret_cast<const void*>(sizeof(XrVector3f)));
+        }
+
+        void CheckShader(GLuint shader) {
+            GLint r = 0;
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &r);
+            if (r == GL_FALSE) {
+                GLchar msg[4096] = {};
+                GLsizei length;
+                glGetShaderInfoLog(shader, sizeof(msg), &length, msg);
+                THROW(Fmt("Compile shader failed: %s", msg));
+            }
+        }
+
+        void CheckProgram(GLuint prog) {
+            GLint r = 0;
+            glGetProgramiv(prog, GL_LINK_STATUS, &r);
+            if (r == GL_FALSE) {
+                GLchar msg[4096] = {};
+                GLsizei length;
+                glGetProgramInfoLog(prog, sizeof(msg), &length, msg);
+                THROW(Fmt("Link program failed: %s", msg));
+            }
+        }
+
+        void CreateSession() {
+            //3. CreateSession
+            Log::Write(Log::Level::Info,"###### CreateSession Start");
+            XrSessionCreateInfo sessionCI{XR_TYPE_SESSION_CREATE_INFO};
+            // graphics
+            sessionCI.createFlags = 0;
+            sessionCI.next = reinterpret_cast<const XrBaseInStructure*>(&m_graphicsBinding);
+            sessionCI.systemId = m_systemID;
+            OPENXR_CHECK(xrCreateSession(m_xrInstance, &sessionCI, &m_session), "Failed to create Session.")
+        }
+
         void DestroyDebugMessenger() {
             if (m_debugUtilsMessenger != XR_NULL_HANDLE) {
                 DestroyOpenXRDebugUtilsMessenger(m_xrInstance, m_debugUtilsMessenger);
             }
+        }
+
+        void DestroySession() {
+            OPENXR_CHECK(xrDestroySession(m_session), "Failed to destroy Session.")
         }
 
         void GetInstanceProperties() {
@@ -173,9 +340,6 @@ namespace Chapter2 {
         }
 
     private:
-        bool m_applicationRunning = true;
-        bool m_sessionRunning = false;
-
         XrInstance m_xrInstance = {};
 
         std::vector<const char *> m_activeInstanceExtensions = {};
@@ -188,6 +352,26 @@ namespace Chapter2 {
         XrFormFactor m_formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
         XrSystemId m_systemID = {};
         XrSystemProperties m_systemProperties = {XR_TYPE_SYSTEM_PROPERTIES};
+
+        // session
+        XrSession m_session = XR_NULL_HANDLE;
+
+        XrGraphicsBindingOpenGLESAndroidKHR m_graphicsBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
+        ksGpuWindow window{};
+
+        GLint m_contextApiMajorVersion{0};
+        GLuint m_program{0};
+        GLuint m_swapchainFramebuffer{0};
+
+        GLint m_modelViewProjectionUniformLocation{0};
+        GLint m_vertexAttribCoords{0};
+        GLint m_vertexAttribColor{0};
+        GLuint m_vao{0};
+        GLuint m_cubeVertexBuffer{0};
+        GLuint m_cubeIndexBuffer{0};
+
+        bool m_applicationRunning = true;
+        bool m_sessionRunning = false;
     };
 
 
