@@ -65,6 +65,16 @@ namespace Chapter2 {
 
             InitializeDevice();
             CreateSession();
+
+            // poll
+            while (m_applicationRunning) {
+                PollSystemEvents();
+                PollEvents();
+                if (m_sessionRunning) {
+
+                }
+            }
+
             DestroySession();
 
             DestroyDebugMessenger();
@@ -292,6 +302,7 @@ namespace Chapter2 {
         }
 
         void DestroySession() {
+            Log::Write(Log::Level::Warning,"###### Destroy Session");
             OPENXR_CHECK(xrDestroySession(m_session), "Failed to destroy Session.")
         }
 
@@ -339,6 +350,89 @@ namespace Chapter2 {
             // XR_DOCS_TAG_END_Android_System_Functionality2
         }
 
+        void PollEvents(){
+            XrEventDataBuffer eventData{XR_TYPE_EVENT_DATA_BUFFER};
+
+            auto XrPollEvents = [&]()->bool {
+                eventData = {XR_TYPE_EVENT_DATA_BUFFER};
+                return xrPollEvent(m_xrInstance, &eventData) == XR_SUCCESS;
+            };
+
+            while (XrPollEvents()) {
+                Log::Write(Log::Level::Info,Fmt("###### XrPollEvents: %d", eventData.type));
+                switch (eventData.type) {
+                    case XR_TYPE_EVENT_DATA_EVENTS_LOST: {
+                        XrEventDataEventsLost *eventLost = reinterpret_cast<XrEventDataEventsLost *>(&eventData);
+                        Log::Write(Log::Level::Info,Fmt("Events Lost: %d", eventLost->lostEventCount));
+                        break;
+                    }
+                    case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING: {
+                        XrEventDataInstanceLossPending *instanceLossPending = reinterpret_cast<XrEventDataInstanceLossPending *>(&eventData);
+                        Log::Write(Log::Level::Info,Fmt("Instance Loss Pending: %d", instanceLossPending->lossTime));
+                        m_sessionRunning = false;
+                        m_applicationRunning = false;
+                        break;
+                    }
+                    case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED: {
+                        XrEventDataInteractionProfileChanged *interactionProfileChanged = reinterpret_cast<XrEventDataInteractionProfileChanged *>(&eventData);
+                        Log::Write(Log::Level::Info,Fmt("Interaction Profile Changed: %d", interactionProfileChanged->session));
+                        if(interactionProfileChanged->session !=m_session){
+                            Log::Write(Log::Level::Info,"XrEventDataInteractionProfileChanged for unknown Session");
+                            break;
+                        }
+                        break;
+                    }
+                    case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:{
+                        XrEventDataReferenceSpaceChangePending *referenceSpaceChangePending = reinterpret_cast<XrEventDataReferenceSpaceChangePending *>(&eventData);
+                        Log::Write(Log::Level::Info,Fmt("Reference Space Change Pending: %d", referenceSpaceChangePending->session));
+                        if(referenceSpaceChangePending->session !=m_session){
+                            Log::Write(Log::Level::Info,"XrEventDataReferenceSpaceChangePending for unknown Session");
+                            break;
+                        }
+                    }
+                    case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:{
+                        XrEventDataSessionStateChanged *sessionStateChanged = reinterpret_cast<XrEventDataSessionStateChanged *>(&eventData);
+                        Log::Write(Log::Level::Info,Fmt("Session State Changed: %d", sessionStateChanged->state));
+
+                        m_sessionState = sessionStateChanged->state;
+                        if(sessionStateChanged->session !=m_session){
+                            Log::Write(Log::Level::Info,"XrEventDataSessionStateChanged for unknown Session");
+                            break;
+                        }
+
+                        if(sessionStateChanged->state == XR_SESSION_STATE_READY){
+                            // read, begin XrSession
+                            XrSessionBeginInfo sessionBeginInfo{XR_TYPE_SESSION_BEGIN_INFO};
+                            // type
+                            sessionBeginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+//                            sessionBeginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_MONO;
+                            OPENXR_CHECK(xrBeginSession(m_session, &sessionBeginInfo), "Failed to begin Session.")
+                            m_sessionRunning = true;
+                        }
+
+                        if(sessionStateChanged->state == XR_SESSION_STATE_STOPPING){
+                            OPENXR_CHECK(xrEndSession(m_session), "Failed to end Session.")
+                            m_sessionRunning = false;
+                        }
+
+                        if(sessionStateChanged->state == XR_SESSION_STATE_EXITING){
+                            m_sessionRunning = false;
+                            m_applicationRunning = false;
+                            Log::Write(Log::Level::Info,"XrEventDataSessionStateChanged for EXITING");
+                        }
+
+                        if(sessionStateChanged->state == XR_SESSION_STATE_LOSS_PENDING){
+                            m_sessionRunning = false;
+                            Log::Write(Log::Level::Info,"XrEventDataSessionStateChanged for LOSS_PENDING");
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+        }
+
     private:
         XrInstance m_xrInstance = {};
 
@@ -355,6 +449,7 @@ namespace Chapter2 {
 
         // session
         XrSession m_session = XR_NULL_HANDLE;
+        XrSessionState m_sessionState = XR_SESSION_STATE_UNKNOWN;
 
         XrGraphicsBindingOpenGLESAndroidKHR m_graphicsBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
         ksGpuWindow window{};
