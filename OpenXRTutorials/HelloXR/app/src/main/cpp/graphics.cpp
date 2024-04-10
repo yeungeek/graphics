@@ -20,7 +20,7 @@
 #include <jni.h>
 #include <sys/system_properties.h>
 
-namespace Chapter2 {
+namespace Chapter3 {
     // The version statement has come on first line.
     static const char* VertexShaderGlsl = R"_(#version 320 es
 
@@ -96,6 +96,40 @@ namespace Chapter2 {
         };
         static AndroidAppState androidAppState;
 
+        enum class SwapchainType : uint8_t {
+            COLOR,
+            DEPTH
+        };
+
+        struct ImageViewCreateInfo {
+            void* image;
+            enum class Type : uint8_t {
+                RTV,
+                DSV,
+                SRV,
+                UAV
+            } type;
+            enum class View : uint8_t {
+                TYPE_1D,
+                TYPE_2D,
+                TYPE_3D,
+                TYPE_CUBE,
+                TYPE_1D_ARRAY,
+                TYPE_2D_ARRAY,
+                TYPE_CUBE_ARRAY,
+            } view;
+            int64_t format;
+            enum class Aspect : uint8_t {
+                COLOR_BIT = 0x01,
+                DEPTH_BIT = 0x02,
+                STENCIL_BIT = 0x04
+            } aspect;
+            uint32_t baseMipLevel;
+            uint32_t levelCount;
+            uint32_t baseArrayLayer;
+            uint32_t layerCount;
+        };
+
         // Processes the next command from the Android OS. It updates AndroidAppState.
         static void AndroidAppHandleCmd(struct android_app *app, int32_t cmd) {
             AndroidAppState *appState = (AndroidAppState *) app->userData;
@@ -169,7 +203,34 @@ namespace Chapter2 {
         }
 
         void GetViewConfigurations() {
+            Log::Write(Log::Level::Info,"###### GetViewConfigurations Start");
+            uint32_t viewConfigTypeCount = 0;
+            OPENXR_CHECK(xrEnumerateViewConfigurations(m_xrInstance, m_systemID, 0, &viewConfigTypeCount, nullptr),
+                           "Failed to get view configuration type count.")
+            m_viewConfigurations.resize(viewConfigTypeCount);
+            OPENXR_CHECK(xrEnumerateViewConfigurations(m_xrInstance, m_systemID, viewConfigTypeCount, &viewConfigTypeCount, m_viewConfigurations.data()),
+                           "Failed to get view configurations.")
 
+            for(const XrViewConfigurationType& viewConfigType : m_applicationViewConfigurations){
+                if(std::find(m_viewConfigurations.begin(), m_viewConfigurations.end(), viewConfigType) != m_viewConfigurations.end()){
+                    m_viewConfiguration = viewConfigType;
+                    break;
+                }
+            }
+
+            if(m_viewConfiguration == XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM){
+                Log::Write(Log::Level::Error, "No supported view configuration types found.");
+                m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+            }
+
+            uint32_t viewConfigurationViewCount = 0;
+            OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemID, m_viewConfiguration, 0, &viewConfigurationViewCount, nullptr),
+                           "Failed to get view configuration view count.")
+            m_viewConfigurationViews.resize(viewConfigurationViewCount,{XR_TYPE_VIEW_CONFIGURATION_VIEW});
+            OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemID, m_viewConfiguration, viewConfigurationViewCount, &viewConfigurationViewCount, m_viewConfigurationViews.data()),
+                           "Failed to get view configuration views.")
+
+            Log::Write(Log::Level::Info,Fmt("###### GetViewConfigurations: %d", m_viewConfiguration));
         }
 
         void InitializeDevice(){
@@ -305,6 +366,86 @@ namespace Chapter2 {
         void CreateSwapchains() {
             Log::Write(Log::Level::Info,"###### CreateSwapChains Start");
 
+            uint32_t formatCount = 0;
+            OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, 0, &formatCount, nullptr), "Failed to get Swapchain Format Count.")
+            std::vector<int64_t> formats(formatCount);
+            OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, formatCount, &formatCount, formats.data()), "Failed to get Swapchain Formats.")
+            Log::Write(Log::Level::Info, Fmt("###### Swapchain Formats: %d", formatCount));
+
+            m_colorSwapchainInfos.resize(m_viewConfigurations.size());
+            m_depthSwapchainInfos.resize(m_viewConfigurations.size());
+
+            for(size_t i = 0; i < m_viewConfigurationViews.size(); i++){
+                SwapchainInfo &colorSwapchainInfo = m_colorSwapchainInfos[i];
+                SwapchainInfo &depthSwapchainInfo = m_depthSwapchainInfos[i];
+
+                // create xrswapchain
+                // color
+                XrSwapchainCreateInfo swapchainCI{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+                swapchainCI.createFlags = 0;
+                swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                swapchainCI.format = GL_RGBA8;  //TODO type
+                swapchainCI.sampleCount = m_viewConfigurationViews[i].recommendedSwapchainSampleCount;
+                swapchainCI.width = m_viewConfigurationViews[i].recommendedImageRectWidth;
+                swapchainCI.height = m_viewConfigurationViews[i].recommendedImageRectHeight;
+                swapchainCI.faceCount = 1;
+                swapchainCI.arraySize = 1;
+                swapchainCI.mipCount = 1;
+                OPENXR_CHECK(xrCreateSwapchain(m_session, &swapchainCI, &colorSwapchainInfo.swapchain), "Failed to create Color Swapchain.")
+                colorSwapchainInfo.swapchainFormat = swapchainCI.format;
+
+                //depth
+                swapchainCI.createFlags = 0;
+                swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                swapchainCI.format = GL_DEPTH_COMPONENT32F; //TODO type
+                swapchainCI.sampleCount = m_viewConfigurationViews[i].recommendedSwapchainSampleCount;
+                swapchainCI.width = m_viewConfigurationViews[i].recommendedImageRectWidth;
+                swapchainCI.height = m_viewConfigurationViews[i].recommendedImageRectHeight;
+                swapchainCI.faceCount = 1;
+                swapchainCI.arraySize = 1;
+                swapchainCI.mipCount = 1;
+                OPENXR_CHECK(xrCreateSwapchain(m_session, &swapchainCI, &depthSwapchainInfo.swapchain), "Failed to create Depth Swapchain.")
+                depthSwapchainInfo.swapchainFormat = swapchainCI.format;
+
+                uint32_t colorSwapchainImageCount = 0;
+                OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo.swapchain, 0, &colorSwapchainImageCount, nullptr), "Failed to get Color Swapchain Image Count.")
+                XrSwapchainImageBaseHeader *colorSwapchainImages = AllocateSwapchainImageData(colorSwapchainInfo.swapchain, SwapchainType::COLOR, colorSwapchainImageCount);
+                OPENXR_CHECK(xrEnumerateSwapchainImages(colorSwapchainInfo.swapchain, colorSwapchainImageCount, &colorSwapchainImageCount, colorSwapchainImages), "Failed to get Color Swapchain Images.")
+
+                uint32_t depthSwapchainImageCount = 0;
+                OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo.swapchain, 0, &depthSwapchainImageCount, nullptr), "Failed to get Depth Swapchain Image Count.")
+                XrSwapchainImageBaseHeader *depthSwapchainImages = AllocateSwapchainImageData(depthSwapchainInfo.swapchain, SwapchainType::DEPTH, depthSwapchainImageCount);
+                OPENXR_CHECK(xrEnumerateSwapchainImages(depthSwapchainInfo.swapchain, depthSwapchainImageCount, &depthSwapchainImageCount, depthSwapchainImages), "Failed to get Depth Swapchain Images.")
+
+
+                for(uint32_t j = 0; j < colorSwapchainImageCount; j++){
+                    ImageViewCreateInfo imageViewCI;
+                    imageViewCI.image = GetSwapchainImage(colorSwapchainInfo.swapchain,j);
+                    imageViewCI.type = ImageViewCreateInfo::Type::RTV;
+                    imageViewCI.view = ImageViewCreateInfo::View::TYPE_2D;
+                    imageViewCI.format = colorSwapchainInfo.swapchainFormat;
+                    imageViewCI.aspect = ImageViewCreateInfo::Aspect::COLOR_BIT;
+                    imageViewCI.baseMipLevel = 0;
+                    imageViewCI.levelCount = 1;
+                    imageViewCI.baseArrayLayer = 0;
+                    imageViewCI.layerCount = 1;
+                    colorSwapchainInfo.imageViews.push_back(CreateImageView(imageViewCI));
+                }
+
+                for(uint32_t j = 0; j < depthSwapchainImageCount; i++){
+                    ImageViewCreateInfo imageViewCI;
+                    imageViewCI.image = GetSwapchainImage(depthSwapchainInfo.swapchain,j);
+                    imageViewCI.type = ImageViewCreateInfo::Type::DSV;
+                    imageViewCI.view = ImageViewCreateInfo::View::TYPE_2D;
+                    imageViewCI.format = depthSwapchainInfo.swapchainFormat;
+                    imageViewCI.aspect = ImageViewCreateInfo::Aspect::DEPTH_BIT;
+                    imageViewCI.baseMipLevel = 0;
+                    imageViewCI.levelCount = 1;
+                    imageViewCI.baseArrayLayer = 0;
+                    imageViewCI.layerCount = 1;
+                    depthSwapchainInfo.imageViews.push_back(CreateImageView(imageViewCI));
+                }
+            }
         }
 
         void DestroyDebugMessenger() {
@@ -320,6 +461,24 @@ namespace Chapter2 {
 
         void DestroySwapchains() {
             Log::Write(Log::Level::Warning,"###### Destroy SwapChains");
+            for(size_t i = 0; i < m_viewConfigurationViews.size(); i++){
+                SwapchainInfo &colorSwapchainInfo = m_colorSwapchainInfos[i];
+                SwapchainInfo *depthSwapchainInfo = &m_depthSwapchainInfos[i];
+
+                for(void *&imageView : colorSwapchainInfo.imageViews){
+                    DestroyImageView(imageView);
+                }
+
+                for(void *&imageView : depthSwapchainInfo->imageViews){
+                    DestroyImageView(imageView);
+                }
+
+                FreeSwapchainImageData(colorSwapchainInfo.swapchain);
+                FreeSwapchainImageData(depthSwapchainInfo->swapchain);
+
+                OPENXR_CHECK(xrDestroySwapchain(colorSwapchainInfo.swapchain), "Failed to destroy Color Swapchain.")
+                OPENXR_CHECK(xrDestroySwapchain(depthSwapchainInfo->swapchain), "Failed to destroy Depth Swapchain.")
+            }
         }
 
         void GetInstanceProperties() {
@@ -449,6 +608,56 @@ namespace Chapter2 {
             }
         }
 
+        XrSwapchainImageBaseHeader* AllocateSwapchainImageData(XrSwapchain swapchain, SwapchainType type, uint32_t count) {
+            swapchainImagesMap[swapchain].first = type;
+            swapchainImagesMap[swapchain].second.resize(count,
+                                                        {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
+            return reinterpret_cast<XrSwapchainImageBaseHeader *>(swapchainImagesMap[swapchain].second.data());
+        }
+
+        void* GetSwapchainImage(XrSwapchain swapchain, uint32_t index)  {
+            return (void*)(uint64_t)swapchainImagesMap[swapchain].second[index].image;
+        }
+
+        void* CreateImageView(const ImageViewCreateInfo &imageViewCI) {
+            GLuint framebuffer = 0;
+            glGenFramebuffers(1, &framebuffer);
+
+            GLenum attachment = imageViewCI.aspect == ImageViewCreateInfo::Aspect::COLOR_BIT ? GL_COLOR_ATTACHMENT0 : GL_DEPTH_ATTACHMENT;
+
+            glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+            if (imageViewCI.view == ImageViewCreateInfo::View::TYPE_2D_ARRAY) {
+                glFramebufferTextureMultiviewOVR(GL_DRAW_FRAMEBUFFER, attachment, (GLuint)(uint64_t)imageViewCI.image, imageViewCI.baseMipLevel, imageViewCI.baseArrayLayer, imageViewCI.layerCount);
+            } else if (imageViewCI.view == ImageViewCreateInfo::View::TYPE_2D) {
+                glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attachment, GL_TEXTURE_2D, (GLuint)(uint64_t)imageViewCI.image, imageViewCI.baseMipLevel);
+            } else {
+                DEBUG_BREAK;
+                std::cout << "ERROR: OPENGL: Unknown ImageView View type." << std::endl;
+            }
+
+            GLenum result = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
+            if (result != GL_FRAMEBUFFER_COMPLETE) {
+                DEBUG_BREAK;
+                std::cout << "ERROR: OPENGL: Framebuffer is not complete" << std::endl;
+            }
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            imageViews[framebuffer] = imageViewCI;
+            return (void *)(uint64_t)framebuffer;
+        }
+
+        void DestroyImageView(void *&imageView) {
+            GLuint framebuffer = (GLuint)(uint64_t)imageView;
+            imageViews.erase(framebuffer);
+            glDeleteFramebuffers(1, &framebuffer);
+            imageView = nullptr;
+        }
+
+        void FreeSwapchainImageData(XrSwapchain swapchain) {
+            swapchainImagesMap[swapchain].second.clear();
+            swapchainImagesMap.erase(swapchain);
+        }
+
     private:
         XrInstance m_xrInstance = {};
 
@@ -491,11 +700,22 @@ namespace Chapter2 {
         std::vector<XrViewConfigurationType> m_viewConfigurations = {};
         XrViewConfigurationType m_viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM;
         std::vector<XrViewConfigurationView> m_viewConfigurationViews;
+        XrViewConfigurationType m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM;
+
+        std::unordered_map < XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageOpenGLESKHR>>> swapchainImagesMap{};
+        std::unordered_map<GLuint, ImageViewCreateInfo> imageViews{};
 
         struct SwapchainInfo{
             XrSwapchain swapchain = XR_NULL_HANDLE;
             int64_t swapchainFormat = 0;
             std::vector<void *> imageViews;
+        };
+
+        struct RenderLayerInfo {
+            XrTime predictedDisplayTime = 0;
+            std::vector<XrCompositionLayerBaseHeader *> layers;
+            XrCompositionLayerProjection layerProjection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+            std::vector<XrCompositionLayerProjectionView> layerProjectionViews;
         };
 
         std::vector<SwapchainInfo> m_colorSwapchainInfos = {};
