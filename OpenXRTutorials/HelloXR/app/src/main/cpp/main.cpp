@@ -132,6 +132,7 @@ void android_main(struct android_app *app) {
     Log::Write(Log::Level::Info,"###### 3.CreateOpenXrProgram");
 
     // Initialize the loader for this platform
+    // TODO: 1. Initialize the loader
     PFN_xrInitializeLoaderKHR initializeLoader = nullptr;
     if (XR_SUCCEEDED(
             xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR", (PFN_xrVoidFunction*)(&initializeLoader)))) {
@@ -141,6 +142,7 @@ void android_main(struct android_app *app) {
         initializeLoader((const XrLoaderInitInfoBaseHeaderKHR*)&loaderInitInfoAndroid);
     }
 
+    // TODO: 2. CreateInstance
     program->CreateInstance();
     program->InitializeSystem();
 
@@ -150,7 +152,9 @@ void android_main(struct android_app *app) {
     graphicsPlugin->UpdateOptions(options);
 
     program->InitializeDevice();
+    // TODO: 3. CreateSession, contains CreateSpace
     program->InitializeSession();
+    // TODO 4. CreateSwapchains
     program->CreateSwapchains();
 
     bool requestRestart = false;

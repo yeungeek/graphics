@@ -11,6 +11,7 @@
 #include "common/openxr_helper.h"
 #include "common/openxr_debugutils.h"
 #include "common/geometry.h"
+#include "common/xr_linear_algebra.h"
 
 #include <common/gfxwrapper_opengl.h>
 
@@ -21,6 +22,13 @@
 #include <sys/system_properties.h>
 
 namespace Chapter3 {
+    XrVector3f operator-(XrVector3f a, XrVector3f b) {
+        return {a.x - b.x, a.y - b.y, a.z - b.z};
+    }
+    XrVector3f operator*(XrVector3f a, float b) {
+        return {a.x * b, a.y * b, a.z * b};
+    }
+
     // The version statement has come on first line.
     static const char* VertexShaderGlsl = R"_(#version 320 es
 
@@ -70,6 +78,7 @@ namespace Chapter3 {
             CreateSession();
             CreateReferenceSpace();
             CreateSwapchains();
+            CreateResources();
 
             // poll
             while (m_applicationRunning) {
@@ -81,6 +90,7 @@ namespace Chapter3 {
                 }
             }
 
+            DestroyResources();
             DestroySwapchains();
             DestroyReferenceSpace();
             DestroySession();
@@ -161,6 +171,29 @@ namespace Chapter3 {
         struct Rect2D {
             Offset2D offset;
             Extent2D extent;
+        };
+        struct BufferCreateInfo {
+            enum class Type : uint8_t {
+                VERTEX,
+                INDEX,
+                UNIFORM,
+            } type;
+            size_t stride;
+            size_t size;
+            void* data;
+        };
+
+        struct ShaderCreateInfo {
+            enum class Type : uint8_t {
+                VERTEX,
+                TESSELLATION_CONTROL,
+                TESSELLATION_EVALUATION,
+                GEOMETRY,
+                FRAGMENT,
+                COMPUTE
+            } type;
+            const char* sourceData;
+            size_t sourceSize;
         };
 
         // Processes the next command from the Android OS. It updates AndroidAppState.
@@ -370,74 +403,58 @@ namespace Chapter3 {
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
 
-        void InitializeResources() {
-            Log::Write(Log::Level::Info,"###### InitializeResources Start");
-            glGenFramebuffers(1, &m_swapchainFramebuffer);
-
-            GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-            glShaderSource(vertexShader, 1, &VertexShaderGlsl, nullptr);
-            glCompileShader(vertexShader);
-            CheckShader(vertexShader);
-
-            GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-            glShaderSource(fragmentShader, 1, &FragmentShaderGlsl, nullptr);
-            glCompileShader(fragmentShader);
-            CheckShader(fragmentShader);
-
-            m_program = glCreateProgram();
-            glAttachShader(m_program, vertexShader);
-            glAttachShader(m_program, fragmentShader);
-            glLinkProgram(m_program);
-            CheckProgram(m_program);
-
-            glDeleteShader(vertexShader);
-            glDeleteShader(fragmentShader);
-
-            m_modelViewProjectionUniformLocation = glGetUniformLocation(m_program, "ModelViewProjection");
-
-            m_vertexAttribCoords = glGetAttribLocation(m_program, "VertexPos");
-            m_vertexAttribColor = glGetAttribLocation(m_program, "VertexColor");
-
-            glGenBuffers(1, &m_cubeVertexBuffer);
-            glBindBuffer(GL_ARRAY_BUFFER, m_cubeVertexBuffer);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(Geometry::c_cubeVertices), Geometry::c_cubeVertices, GL_STATIC_DRAW);
-
-            glGenBuffers(1, &m_cubeIndexBuffer);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIndexBuffer);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Geometry::c_cubeIndices), Geometry::c_cubeIndices, GL_STATIC_DRAW);
-
-            glGenVertexArrays(1, &m_vao);
-            glBindVertexArray(m_vao);
-            glEnableVertexAttribArray(m_vertexAttribCoords);
-            glEnableVertexAttribArray(m_vertexAttribColor);
-            glBindBuffer(GL_ARRAY_BUFFER, m_cubeVertexBuffer);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIndexBuffer);
-            glVertexAttribPointer(m_vertexAttribCoords, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex), nullptr);
-            glVertexAttribPointer(m_vertexAttribColor, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex),
-                                  reinterpret_cast<const void*>(sizeof(XrVector3f)));
-        }
-
-        void CheckShader(GLuint shader) {
-            GLint r = 0;
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &r);
-            if (r == GL_FALSE) {
-                GLchar msg[4096] = {};
-                GLsizei length;
-                glGetShaderInfoLog(shader, sizeof(msg), &length, msg);
-                THROW(Fmt("Compile shader failed: %s", msg));
+        void *CreateShader(const ShaderCreateInfo &shaderCI) {
+            GLenum type = 0;
+            switch (shaderCI.type) {
+                case ShaderCreateInfo::Type::VERTEX: {
+                    type = GL_VERTEX_SHADER;
+                    break;
+                }
+                case ShaderCreateInfo::Type::TESSELLATION_CONTROL: {
+                    type = GL_TESS_CONTROL_SHADER;
+                    break;
+                }
+                case ShaderCreateInfo::Type::TESSELLATION_EVALUATION: {
+                    type = GL_TESS_EVALUATION_SHADER;
+                    break;
+                }
+                case ShaderCreateInfo::Type::GEOMETRY: {
+                    type = GL_GEOMETRY_SHADER;
+                    break;
+                }
+                case ShaderCreateInfo::Type::FRAGMENT: {
+                    type = GL_FRAGMENT_SHADER;
+                    break;
+                }
+                case ShaderCreateInfo::Type::COMPUTE: {
+                    type = GL_COMPUTE_SHADER;
+                    break;
+                }
+                default:
+                    std::cout << "ERROR: OPENGL: Unknown Shader Type." << std::endl;
             }
+            GLuint shader = glCreateShader(type);
+
+            glShaderSource(shader, 1, &shaderCI.sourceData, nullptr);
+            glCompileShader(shader);
+
+            GLint isCompiled = 0;
+            glGetShaderiv(shader, GL_COMPILE_STATUS, &isCompiled);
+            if (isCompiled == GL_FALSE) {
+                GLint maxLength = 0;
+                glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &maxLength);
+
+                std::vector<GLchar> infoLog(maxLength);
+                glGetShaderInfoLog(shader, maxLength, &maxLength, &infoLog[0]);
+                std::cout << infoLog.data() << std::endl;
+                DEBUG_BREAK;
+
+                glDeleteShader(shader);
+                shader = 0;
+            }
+            return (void *)(uint64_t)shader;
         }
 
-        void CheckProgram(GLuint prog) {
-            GLint r = 0;
-            glGetProgramiv(prog, GL_LINK_STATUS, &r);
-            if (r == GL_FALSE) {
-                GLchar msg[4096] = {};
-                GLsizei length;
-                glGetProgramInfoLog(prog, sizeof(msg), &length, msg);
-                THROW(Fmt("Link program failed: %s", msg));
-            }
-        }
 
         void CreateSession() {
             //3. CreateSession
@@ -643,7 +660,67 @@ namespace Chapter3 {
                 OPENXR_CHECK(xrReleaseSwapchainImage(colorSwapchainInfo.swapchain, &releaseInfo), "Failed to release color swapchain image.")
                 OPENXR_CHECK(xrReleaseSwapchainImage(depthSwapchainInfo.swapchain, &releaseInfo), "Failed to release depth swapchain image.")
             }
+
+            // fill out
+            renderLayerInfo.layerProjection.layerFlags =  XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT | XR_COMPOSITION_LAYER_CORRECT_CHROMATIC_ABERRATION_BIT;
+            renderLayerInfo.layerProjection.space = m_localSpace;
+            renderLayerInfo.layerProjection.viewCount = static_cast<uint32_t>(renderLayerInfo.layerProjectionViews.size());
+            renderLayerInfo.layerProjection.views = renderLayerInfo.layerProjectionViews.data();
+
             return true;
+        }
+
+        void RenderCuboid(XrPosef pose, XrVector3f scale, XrVector3f color){
+
+        }
+
+        void CreateResources() {
+            constexpr XrVector4f vertexPositions[] = {
+                    {+0.5f, +0.5f, +0.5f, 1.0f},
+                    {+0.5f, +0.5f, -0.5f, 1.0f},
+                    {+0.5f, -0.5f, +0.5f, 1.0f},
+                    {+0.5f, -0.5f, -0.5f, 1.0f},
+                    {-0.5f, +0.5f, +0.5f, 1.0f},
+                    {-0.5f, +0.5f, -0.5f, 1.0f},
+                    {-0.5f, -0.5f, +0.5f, 1.0f},
+                    {-0.5f, -0.5f, -0.5f, 1.0f}};
+
+#define CUBE_FACE(V1, V2, V3, V4, V5, V6) vertexPositions[V1], vertexPositions[V2], vertexPositions[V3], vertexPositions[V4], vertexPositions[V5], vertexPositions[V6],
+            XrVector4f cubeVertices[] = {
+                    CUBE_FACE(2, 1, 0, 2, 3, 1)  // -X
+                    CUBE_FACE(6, 4, 5, 6, 5, 7)  // +X
+                    CUBE_FACE(0, 1, 5, 0, 5, 4)  // -Y
+                    CUBE_FACE(2, 6, 7, 2, 7, 3)  // +Y
+                    CUBE_FACE(0, 4, 6, 0, 6, 2)  // -Z
+                    CUBE_FACE(1, 3, 7, 1, 7, 5)  // +Z
+            };
+
+            uint32_t cubeIndices[36] = {
+                    0, 1, 2, 3, 4, 5,        // -X
+                    6, 7, 8, 9, 10, 11,      // +X
+                    12, 13, 14, 15, 16, 17,  // -Y
+                    18, 19, 20, 21, 22, 23,  // +Y
+                    24, 25, 26, 27, 28, 29,  // -Z
+                    30, 31, 32, 33, 34, 35,  // +Z
+            };
+
+            m_vertexBuffer = CreateBuffer({BufferCreateInfo::Type::VERTEX, sizeof(float) * 4, sizeof(cubeVertices), &cubeVertices});
+            m_indexBuffer = CreateBuffer({BufferCreateInfo::Type::INDEX, sizeof(uint32_t), sizeof(cubeIndices), &cubeIndices});
+
+            size_t numberOfCuboids = 2;
+            m_uniformBuffer_Camera = CreateBuffer({BufferCreateInfo::Type::UNIFORM, 0, sizeof(CameraConstants) * numberOfCuboids, nullptr});
+            m_uniformBuffer_Normals = CreateBuffer({BufferCreateInfo::Type::UNIFORM, 0, sizeof(normals), &normals});
+
+            std::string vertexSource = ReadTextFile("shaders/VertexShader_GLES.glsl", androidApp->activity->assetManager);
+            Log::Write(Log::Level::Warning, Fmt("###### vertexSource: %s",vertexSource.c_str()));
+            m_vertexShader = CreateShader({ShaderCreateInfo::Type::VERTEX, vertexSource.data(), vertexSource.size()});
+            std::string fragmentSource = ReadTextFile("shaders/PixelShader_GLES.glsl", androidApp->activity->assetManager);
+            Log::Write(Log::Level::Warning, Fmt("###### fragmentSource: %s",fragmentSource.c_str()));
+            m_fragmentShader = CreateShader({ShaderCreateInfo::Type::FRAGMENT, fragmentSource.data(), fragmentSource.size()});
+        }
+
+        void DestroyResources() {
+
         }
 
         void DestroyDebugMessenger() {
@@ -861,6 +938,30 @@ namespace Chapter3 {
             swapchainImagesMap.erase(swapchain);
         }
 
+        void *CreateBuffer(const BufferCreateInfo &bufferCI) {
+            GLuint buffer = 0;
+            glGenBuffers(1, &buffer);
+
+            GLenum target = 0;
+            if (bufferCI.type == BufferCreateInfo::Type::VERTEX) {
+                target = GL_ARRAY_BUFFER;
+            } else if (bufferCI.type == BufferCreateInfo::Type::INDEX) {
+                target = GL_ELEMENT_ARRAY_BUFFER;
+            } else if (bufferCI.type == BufferCreateInfo::Type::UNIFORM) {
+                target = GL_UNIFORM_BUFFER;
+            } else {
+                DEBUG_BREAK;
+                std::cout << "ERROR: OPENGL: Unknown Buffer Type." << std::endl;
+            }
+
+            glBindBuffer(target, buffer);
+            glBufferData(target, (GLsizeiptr)bufferCI.size, bufferCI.data, GL_STATIC_DRAW);
+            glBindBuffer(target, 0);
+
+            buffers[buffer] = bufferCI;
+            return (void *)(uint64_t)buffer;
+        }
+
     private:
         XrInstance m_xrInstance = {};
 
@@ -907,12 +1008,31 @@ namespace Chapter3 {
 
         std::unordered_map<XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageOpenGLESKHR>>> swapchainImagesMap{};
         std::unordered_map<GLuint, ImageViewCreateInfo> imageViews{};
+        std::unordered_map<GLuint, BufferCreateInfo> buffers{};
 
         struct SwapchainInfo{
             XrSwapchain swapchain = XR_NULL_HANDLE;
             int64_t swapchainFormat = 0;
             std::vector<void *> imageViews;
         };
+
+        struct CameraConstants {
+            XrMatrix4x4f viewProj;
+            XrMatrix4x4f modelViewProj;
+            XrMatrix4x4f model;
+            XrVector4f color;
+            XrVector4f pad1;
+            XrVector4f pad2;
+            XrVector4f pad3;
+        };
+        CameraConstants cameraConstants;
+        XrVector4f normals[6] = {
+                {1.00f, 0.00f, 0.00f, 0},
+                {-1.00f, 0.00f, 0.00f, 0},
+                {0.00f, 1.00f, 0.00f, 0},
+                {0.00f, -1.00f, 0.00f, 0},
+                {0.00f, 0.00f, 1.00f, 0},
+                {0.00f, 0.0f, -1.00f, 0}};
 
         std::vector<SwapchainInfo> m_colorSwapchainInfos = {};
         std::vector<SwapchainInfo> m_depthSwapchainInfos = {};
@@ -930,6 +1050,21 @@ namespace Chapter3 {
         GLuint setPipeline = 0;
         GLuint vertexArray = 0;
         GLuint setIndexBuffer = 0;
+
+        float m_viewHeightM = 1.5f;
+        // Vertex and index buffers: geometry for our cuboids.
+        void *m_vertexBuffer = nullptr;
+        void *m_indexBuffer = nullptr;
+        // Camera values constant buffer for the shaders.
+        void *m_uniformBuffer_Camera = nullptr;
+        // The normals are stored in a uniform buffer to simplify our vertex geometry.
+        void *m_uniformBuffer_Normals = nullptr;
+
+        // We use only two shaders in this app.
+        void *m_vertexShader = nullptr, *m_fragmentShader = nullptr;
+
+        // The pipeline is a graphics-API specific state object.
+        void *m_pipeline = nullptr;
     };
 
 
