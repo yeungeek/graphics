@@ -142,6 +142,27 @@ namespace Chapter3 {
             uint32_t layerCount;
         };
 
+        struct Viewport {
+            float x;
+            float y;
+            float width;
+            float height;
+            float minDepth;
+            float maxDepth;
+        };
+        struct Offset2D {
+            int32_t x;
+            int32_t y;
+        };
+        struct Extent2D {
+            uint32_t width;
+            uint32_t height;
+        };
+        struct Rect2D {
+            Offset2D offset;
+            Extent2D extent;
+        };
+
         // Processes the next command from the Android OS. It updates AndroidAppState.
         static void AndroidAppHandleCmd(struct android_app *app, int32_t cmd) {
             AndroidAppState *appState = (AndroidAppState *) app->userData;
@@ -315,6 +336,38 @@ namespace Chapter3 {
 
             // Initialize the resources
 //            InitializeResources();
+        }
+
+        void BeginRendering() {
+            glGenVertexArrays(1, &vertexArray);
+            glBindVertexArray(vertexArray);
+
+            glGenFramebuffers(1, &setFramebuffer);
+            glBindFramebuffer(GL_FRAMEBUFFER, setFramebuffer);
+        }
+
+        void EndRendering() {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glDeleteFramebuffers(1, &setFramebuffer);
+            setFramebuffer = 0;
+
+            glBindVertexArray(0);
+            glDeleteVertexArrays(1, &vertexArray);
+            vertexArray = 0;
+        }
+
+        void ClearColor(void *imageView, float r, float g, float b, float a) {
+            glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)(uint64_t)imageView);
+            glClearColor(r, g, b, a);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+
+        void ClearDepth(void *imageView, float d) {
+            glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)(uint64_t)imageView);
+            glClearDepthf(d);
+            glClear(GL_DEPTH_BUFFER_BIT);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
 
         void InitializeResources() {
@@ -491,12 +544,106 @@ namespace Chapter3 {
         }
 
         void RenderFrame(){
+            // get rendering info
+            XrFrameState frameState{XR_TYPE_FRAME_STATE};
+            XrFrameWaitInfo frameWaitInfo{XR_TYPE_FRAME_WAIT_INFO};
+            OPENXR_CHECK(xrWaitFrame(m_session, &frameWaitInfo, &frameState),"Failed to wait for XR Frame")
 
+            // beginning the frame
+            XrFrameBeginInfo frameBeginInfo{XR_TYPE_FRAME_BEGIN_INFO};
+            OPENXR_CHECK(xrBeginFrame(m_session, &frameBeginInfo), "Failed to begin XR Frame")
+
+            //layer composition
+            bool rendered = false;
+            RenderLayerInfo renderLayerInfo;
+            renderLayerInfo.predictedDisplayTime = frameState.predictedDisplayTime;
+
+            // session check
+            bool sessionActive = (m_sessionState == XR_SESSION_STATE_SYNCHRONIZED || m_sessionState == XR_SESSION_STATE_VISIBLE || m_sessionState == XR_SESSION_STATE_FOCUSED);
+            if(sessionActive && frameState.shouldRender){
+                // render stereo image
+                rendered = RenderLayer(renderLayerInfo);
+                if(rendered){
+                    // submit layer
+                    renderLayerInfo.layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader *>(&renderLayerInfo.layerProjection));
+                }
+            }
+
+            // blending and layers
+            XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
+            frameEndInfo.displayTime = frameState.predictedDisplayTime;
+            frameEndInfo.environmentBlendMode = m_environmentBlendMode;
+            frameEndInfo.layerCount = static_cast<uint32_t>(renderLayerInfo.layers.size());
+            frameEndInfo.layers = renderLayerInfo.layers.data();
+            OPENXR_CHECK(xrEndFrame(m_session, &frameEndInfo), "Failed to end XR Frame")
         }
 
         bool RenderLayer(RenderLayerInfo& renderLayerInfo){
+            Log::Write(Log::Level::Warning,"###### RenderLayer");
+            std::vector<XrView> views(m_viewConfigurationViews.size(),{XR_TYPE_VIEW});
 
-            return 1;
+            XrViewState viewState{XR_TYPE_VIEW_STATE};
+            XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
+            viewLocateInfo.viewConfigurationType = m_viewConfigurationType;
+            viewLocateInfo.displayTime = renderLayerInfo.predictedDisplayTime;
+            viewLocateInfo.space = m_localSpace;
+
+            uint32_t viewCount = 0;
+            XrResult  result = xrLocateViews(m_session, &viewLocateInfo, &viewState, (uint32_t)views.size(), &viewCount, views.data());
+            if(result != XR_SUCCESS){
+                Log::Write(Log::Level::Error,"###### Failed to locate view");
+                return false;
+            }
+
+            renderLayerInfo.layerProjectionViews.resize(viewCount,{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW});
+
+            for (uint32_t i = 0; i < viewCount; i++) {
+                SwapchainInfo &colorSwapchainInfo = m_colorSwapchainInfos[i];
+                SwapchainInfo &depthSwapchainInfo = m_depthSwapchainInfos[i];
+
+                uint32_t colorImageIndex = 0;
+                uint32_t depthImageIndex = 0;
+                XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+                OPENXR_CHECK(xrAcquireSwapchainImage(colorSwapchainInfo.swapchain, &acquireInfo, &colorImageIndex), "Failed to acquire color swapchain image.")
+                OPENXR_CHECK(xrAcquireSwapchainImage(depthSwapchainInfo.swapchain, &acquireInfo, &depthImageIndex), "Failed to acquire depth swapchain image.")
+
+                // get viewport and scissors
+                const uint32_t &width = m_viewConfigurationViews[i].recommendedImageRectWidth;
+                const uint32_t &height = m_viewConfigurationViews[i].recommendedImageRectHeight;
+
+                Viewport viewport = {0.0f, 0.0f, (float)width, (float)height, 0.0f,1.0f};
+                Rect2D scissor = {{0,0,},{width,height}};
+                float nearZ = 0.05f;
+                float farZ = 100.0f;
+
+                // composition layer
+                renderLayerInfo.layerProjectionViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+                renderLayerInfo.layerProjectionViews[i].pose = views[i].pose;
+                renderLayerInfo.layerProjectionViews[i].fov = views[i].fov;
+                renderLayerInfo.layerProjectionViews[i].subImage.swapchain = colorSwapchainInfo.swapchain;
+                renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.x = 0;
+                renderLayerInfo.layerProjectionViews[i].subImage.imageRect.offset.y = 0;
+                renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.width = width;
+                renderLayerInfo.layerProjectionViews[i].subImage.imageRect.extent.height = height;
+                renderLayerInfo.layerProjectionViews[i].subImage.imageArrayIndex = 0;
+
+                // render color and depth
+                BeginRendering();
+                if (m_environmentBlendMode == XR_ENVIRONMENT_BLEND_MODE_OPAQUE) {
+                    ClearColor(colorSwapchainInfo.imageViews[colorImageIndex],0.17f,0.17f,0.17f,1.0f);
+                } else {
+                    ClearColor(colorSwapchainInfo.imageViews[colorImageIndex],0.0f,0.0f,0.0f,0.0f);
+                }
+
+                ClearDepth(depthSwapchainInfo.imageViews[depthImageIndex],1.0f);
+
+                EndRendering();
+
+                XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                OPENXR_CHECK(xrReleaseSwapchainImage(colorSwapchainInfo.swapchain, &releaseInfo), "Failed to release color swapchain image.")
+                OPENXR_CHECK(xrReleaseSwapchainImage(depthSwapchainInfo.swapchain, &releaseInfo), "Failed to release depth swapchain image.")
+            }
+            return true;
         }
 
         void DestroyDebugMessenger() {
@@ -507,7 +654,7 @@ namespace Chapter3 {
 
         void DestroyReferenceSpace() {
             Log::Write(Log::Level::Warning,"###### Destroy Reference Space");
-
+//            OPENXR_CHECK(xrDestroySpace(ref), "Failed to destroy Reference Space.")
         }
 
         void DestroySession() {
@@ -777,6 +924,12 @@ namespace Chapter3 {
                 XR_ENVIRONMENT_BLEND_MODE_ADDITIVE};
         std::vector<XrEnvironmentBlendMode> m_environmentBlendModes = {};
         XrEnvironmentBlendMode m_environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_MAX_ENUM;
+
+        // render
+        GLuint setFramebuffer = 0;
+        GLuint setPipeline = 0;
+        GLuint vertexArray = 0;
+        GLuint setIndexBuffer = 0;
     };
 
 
