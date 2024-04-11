@@ -63,9 +63,12 @@ namespace Chapter3 {
             GetInstanceProperties();
             GetSystemID();
 
-            GetViewConfigurations();
             InitializeDevice();
+            GetViewConfigurations();
+            GetEnvironmentBlendMode();
+
             CreateSession();
+            CreateReferenceSpace();
             CreateSwapchains();
 
             // poll
@@ -73,11 +76,13 @@ namespace Chapter3 {
                 PollSystemEvents();
                 PollEvents();
                 if (m_sessionRunning) {
-
+                    //render
+                    RenderFrame();
                 }
             }
 
             DestroySwapchains();
+            DestroyReferenceSpace();
             DestroySession();
 
             DestroyDebugMessenger();
@@ -99,6 +104,13 @@ namespace Chapter3 {
         enum class SwapchainType : uint8_t {
             COLOR,
             DEPTH
+        };
+
+        struct RenderLayerInfo {
+            XrTime predictedDisplayTime = 0;
+            std::vector<XrCompositionLayerBaseHeader *> layers;
+            XrCompositionLayerProjection layerProjection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+            std::vector<XrCompositionLayerProjectionView> layerProjectionViews;
         };
 
         struct ImageViewCreateInfo {
@@ -233,6 +245,28 @@ namespace Chapter3 {
             Log::Write(Log::Level::Info,Fmt("###### GetViewConfigurations: %d", m_viewConfiguration));
         }
 
+        void GetEnvironmentBlendMode(){
+            Log::Write(Log::Level::Info,"###### GetEnvironmentBlendMode Start");
+            uint32_t environmentBlendModeCount = 0;
+            OPENXR_CHECK(xrEnumerateEnvironmentBlendModes(m_xrInstance, m_systemID, m_viewConfiguration, 0, &environmentBlendModeCount, &m_environmentBlendMode),
+                           "Failed to get environment blend mode count.")
+            m_environmentBlendModes.resize(environmentBlendModeCount);
+            OPENXR_CHECK(xrEnumerateEnvironmentBlendModes(m_xrInstance, m_systemID, m_viewConfiguration, environmentBlendModeCount, &environmentBlendModeCount, m_environmentBlendModes.data()),
+                           "Failed to get environment blend modes.")
+
+            for(const XrEnvironmentBlendMode& environmentBlendMode : m_applicationEnvironmentBlendModes){
+                if(std::find(m_environmentBlendModes.begin(), m_environmentBlendModes.end(), environmentBlendMode) != m_environmentBlendModes.end()){
+                    m_environmentBlendMode = environmentBlendMode;
+                    break;
+                }
+            }
+
+            if(m_environmentBlendMode == XR_ENVIRONMENT_BLEND_MODE_MAX_ENUM){
+                Log::Write(Log::Level::Error, "No supported environment blend modes found.");
+                m_environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+            }
+        }
+
         void InitializeDevice(){
             Log::Write(Log::Level::Info,"###### InitializeDevice Start");
             PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetOpenGLESGraphicsRequirementsKHR = nullptr;
@@ -272,12 +306,12 @@ namespace Chapter3 {
             m_graphicsBinding.context = window.context.context;
 
             glEnable(GL_DEBUG_OUTPUT);
-            glDebugMessageCallback(
-                    [](GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message,
-                       const void* userParam) {
-                        Log::Write(Log::Level::Info, "###### GLES Debug: " + std::string(message, 0, length));
-                    },
-                    this);
+//            glDebugMessageCallback(
+//                    [](GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message,
+//                       const void* userParam) {
+//                        Log::Write(Log::Level::Info, "###### GLES Debug: " + std::string(message, 0, length));
+//                    },
+//                    this);
 
             // Initialize the resources
 //            InitializeResources();
@@ -363,6 +397,14 @@ namespace Chapter3 {
             OPENXR_CHECK(xrCreateSession(m_xrInstance, &sessionCI, &m_session), "Failed to create Session.")
         }
 
+        void CreateReferenceSpace() {
+            Log::Write(Log::Level::Info,"###### CreateReferenceSpace Start");
+            XrReferenceSpaceCreateInfo referenceSpaceCI{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
+            referenceSpaceCI.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+            referenceSpaceCI.poseInReferenceSpace = {{0.0f,0.0f,0.0f,1.0f},{0.0f,0.0f,0.0f}};
+            OPENXR_CHECK(xrCreateReferenceSpace(m_session, &referenceSpaceCI, &m_localSpace), "Failed to create Reference Space.")
+        }
+
         void CreateSwapchains() {
             Log::Write(Log::Level::Info,"###### CreateSwapChains Start");
 
@@ -396,7 +438,7 @@ namespace Chapter3 {
 
                 //depth
                 swapchainCI.createFlags = 0;
-                swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                swapchainCI.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
                 swapchainCI.format = GL_DEPTH_COMPONENT32F; //TODO type
                 swapchainCI.sampleCount = m_viewConfigurationViews[i].recommendedSwapchainSampleCount;
                 swapchainCI.width = m_viewConfigurationViews[i].recommendedImageRectWidth;
@@ -448,10 +490,24 @@ namespace Chapter3 {
             }
         }
 
+        void RenderFrame(){
+
+        }
+
+        bool RenderLayer(RenderLayerInfo& renderLayerInfo){
+
+            return 1;
+        }
+
         void DestroyDebugMessenger() {
             if (m_debugUtilsMessenger != XR_NULL_HANDLE) {
                 DestroyOpenXRDebugUtilsMessenger(m_xrInstance, m_debugUtilsMessenger);
             }
+        }
+
+        void DestroyReferenceSpace() {
+            Log::Write(Log::Level::Warning,"###### Destroy Reference Space");
+
         }
 
         void DestroySession() {
@@ -702,7 +758,7 @@ namespace Chapter3 {
         std::vector<XrViewConfigurationView> m_viewConfigurationViews;
         XrViewConfigurationType m_viewConfiguration = XR_VIEW_CONFIGURATION_TYPE_MAX_ENUM;
 
-        std::unordered_map < XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageOpenGLESKHR>>> swapchainImagesMap{};
+        std::unordered_map<XrSwapchain, std::pair<SwapchainType, std::vector<XrSwapchainImageOpenGLESKHR>>> swapchainImagesMap{};
         std::unordered_map<GLuint, ImageViewCreateInfo> imageViews{};
 
         struct SwapchainInfo{
@@ -711,15 +767,16 @@ namespace Chapter3 {
             std::vector<void *> imageViews;
         };
 
-        struct RenderLayerInfo {
-            XrTime predictedDisplayTime = 0;
-            std::vector<XrCompositionLayerBaseHeader *> layers;
-            XrCompositionLayerProjection layerProjection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
-            std::vector<XrCompositionLayerProjectionView> layerProjectionViews;
-        };
-
         std::vector<SwapchainInfo> m_colorSwapchainInfos = {};
         std::vector<SwapchainInfo> m_depthSwapchainInfos = {};
+
+        XrSpace m_localSpace = XR_NULL_HANDLE;
+
+        std::vector<XrEnvironmentBlendMode> m_applicationEnvironmentBlendModes = {
+                XR_ENVIRONMENT_BLEND_MODE_OPAQUE,
+                XR_ENVIRONMENT_BLEND_MODE_ADDITIVE};
+        std::vector<XrEnvironmentBlendMode> m_environmentBlendModes = {};
+        XrEnvironmentBlendMode m_environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_MAX_ENUM;
     };
 
 
