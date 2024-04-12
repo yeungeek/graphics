@@ -13,6 +13,8 @@
 
 // system
 #include <array>
+#include <list>
+#include <map>
 
 #include "openxr/openxr_platform.h"
 #include "common/openxr_helper.h"
@@ -25,6 +27,17 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace Sample {
+    struct AndroidAppState {
+        ANativeWindow *NativeWindow = nullptr;
+        bool Resumed = false;
+    };
+
+    struct Swapchain {
+        XrSwapchain handle;
+        int32_t width;
+        int32_t height;
+    };
+
     // properties
     void* applicationVM;
     void* applicationActivity;
@@ -43,17 +56,19 @@ namespace Sample {
     XrGraphicsBindingOpenGLESAndroidKHR m_graphicsBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
 
     std::vector<XrSpace> m_visualizedSpaces;
+    std::vector<XrViewConfigurationView> m_configViews;
+    std::vector<Swapchain> m_swapchains;
+
+    std::map<XrSwapchain, std::vector<XrSwapchainImageBaseHeader*>> m_swapchainImages;
+    std::list<std::vector<XrSwapchainImageOpenGLESKHR>> m_swapchainImageBuffers;
+    std::vector<XrView> m_views;
+    int64_t m_colorSwapchainFormat{-1};
     // color
     std::array<float, 4> m_clearColor = {0.184313729f, 0.309803933f, 0.309803933f, 1.0f};
 
     ksGpuWindow window{};
 
     GLint m_contextApiMajorVersion{0};
-
-    struct AndroidAppState {
-        ANativeWindow *NativeWindow = nullptr;
-        bool Resumed = false;
-    };
     /**
      * Process the next main command.
      */
@@ -121,6 +136,43 @@ namespace Sample {
         return referenceSpaceCreateInfo;
     }
 
+    int64_t SelectColorSwapchainFormat(const std::vector<int64_t> &runtimeFormats) {
+        // List of supported color swapchain formats.
+        std::vector<int64_t> supportedColorSwapchainFormats{GL_RGBA8, GL_RGBA8_SNORM};
+
+        // In OpenGLES 3.0+, the R, G, and B values after blending are converted into the non-linear
+        // sRGB automatically.
+        if (m_contextApiMajorVersion >= 3) {
+            supportedColorSwapchainFormats.push_back(GL_SRGB8_ALPHA8);
+        }
+
+        auto swapchainFormatIt = std::find_first_of(runtimeFormats.begin(), runtimeFormats.end(),
+                                                    supportedColorSwapchainFormats.begin(),
+                                                    supportedColorSwapchainFormats.end());
+        if (swapchainFormatIt == runtimeFormats.end()) {
+            THROW("No runtime swapchain format supported for color swapchain");
+        }
+
+        return *swapchainFormatIt;
+    }
+
+    std::vector<XrSwapchainImageBaseHeader *> AllocateSwapchainImageStructs(
+            uint32_t capacity, const XrSwapchainCreateInfo & /*swapchainCreateInfo*/) {
+        // Allocate and initialize the buffer of image structs (must be sequential in memory for xrEnumerateSwapchainImages).
+        // Return back an array of pointers to each swapchain image struct so the consumer doesn't need to know the type/size.
+        std::vector<XrSwapchainImageOpenGLESKHR> swapchainImageBuffer(capacity,
+                                                                      {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
+        std::vector<XrSwapchainImageBaseHeader *> swapchainImageBase;
+        for (XrSwapchainImageOpenGLESKHR &image: swapchainImageBuffer) {
+            swapchainImageBase.push_back(reinterpret_cast<XrSwapchainImageBaseHeader *>(&image));
+        }
+
+        // Keep the buffer alive by moving it into the list of buffers.
+        m_swapchainImageBuffers.push_back(std::move(swapchainImageBuffer));
+
+        return swapchainImageBase;
+    }
+
     /**
      * logic
      */
@@ -164,6 +216,86 @@ namespace Sample {
                 m_visualizedSpaces.push_back(space);
             } else {
                 LOGE("###### Failed to create reference space %s with error %d", visualizedSpace.c_str(),res);
+            }
+        }
+    }
+
+    void create_swapchains(){
+        XrSystemProperties systemProperties{XR_TYPE_SYSTEM_PROPERTIES};
+        OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemId, &systemProperties), "Failed to get system properties.")
+        LOGI("###### Using system %d with name %s and vendorId %d",m_systemId,systemProperties.systemName,systemProperties.vendorId);
+
+        // Query and cache view configuration views.
+        uint32_t viewCount;
+        OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance,m_systemId,viewConfigType,0,&viewCount,
+                                                       nullptr),"Failed to enumerate configuration views")
+        m_configViews.resize(viewCount,{XR_TYPE_VIEW_CONFIGURATION_VIEW});
+        OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance,m_systemId,viewConfigType,viewCount,&viewCount,
+                                                       m_configViews.data()),"Failed to enumerate configuration views")
+        // Create and cache view buffer for xrLocateViews later.
+        m_views.resize(viewCount, {XR_TYPE_VIEW});
+
+        if (viewCount > 0) {
+            uint32_t swapchainFormatCount;
+            OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, 0, &swapchainFormatCount, nullptr),
+                         "Failed to get swapchain format count.")
+            std::vector<int64_t> swapchainFormats(swapchainFormatCount);
+            OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, (uint32_t)swapchainFormats.size(), &swapchainFormatCount,
+                                                      swapchainFormats.data()), "Failed to get swapchain formats.")
+
+
+            m_colorSwapchainFormat = SelectColorSwapchainFormat(swapchainFormats);
+
+            // Print swapchain formats and the selected one.
+            {
+                std::string swapchainFormatsString;
+                for (int64_t format : swapchainFormats) {
+                    const bool selected = format == m_colorSwapchainFormat;
+                    swapchainFormatsString += " ";
+                    if (selected) {
+                        swapchainFormatsString += "[";
+                    }
+                    swapchainFormatsString += std::to_string(format);
+                    if (selected) {
+                        swapchainFormatsString += "]";
+                    }
+                }
+                LOGI("###### Swapchain formats: %s, selected format: %d", swapchainFormatsString.c_str(),
+                      m_colorSwapchainFormat);
+            }
+
+            // Create a swapchain for each view.
+            for (uint32_t i = 0; i < viewCount; i++) {
+                const XrViewConfigurationView& vp = m_configViews[i];
+                LOGI("Creating swapchain for view %d with dimensions Width=%d Height=%d SampleCount=%d", i,
+                    vp.recommendedImageRectWidth, vp.recommendedImageRectHeight, vp.recommendedSwapchainSampleCount);
+
+                // Create the swapchain.
+                XrSwapchainCreateInfo swapchainCreateInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+                swapchainCreateInfo.arraySize = 1;
+                swapchainCreateInfo.format = m_colorSwapchainFormat;
+                swapchainCreateInfo.width = vp.recommendedImageRectWidth;
+                swapchainCreateInfo.height = vp.recommendedImageRectHeight;
+                swapchainCreateInfo.mipCount = 1;
+                swapchainCreateInfo.faceCount = 1;
+                swapchainCreateInfo.sampleCount = vp.recommendedSwapchainSampleCount;
+                swapchainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                Swapchain swapchain;
+                swapchain.width = swapchainCreateInfo.width;
+                swapchain.height = swapchainCreateInfo.height;
+                OPENXR_CHECK(xrCreateSwapchain(m_session, &swapchainCreateInfo, &swapchain.handle),
+                             "Failed to create swapchain.")
+
+                m_swapchains.push_back(swapchain);
+
+                uint32_t imageCount;
+                OPENXR_CHECK(xrEnumerateSwapchainImages(swapchain.handle, 0, &imageCount, nullptr),
+                             "Failed to get swapchain image count.")
+                std::vector<XrSwapchainImageBaseHeader*> swapchainImages = AllocateSwapchainImageStructs(imageCount, swapchainCreateInfo);
+                OPENXR_CHECK(xrEnumerateSwapchainImages(swapchain.handle, imageCount, &imageCount, swapchainImages[0]),
+                             "Failed to enumerate swapchain images.")
+
+                m_swapchainImages.insert(std::make_pair(swapchain.handle,std::move(swapchainImages)));
             }
         }
     }
@@ -288,5 +420,7 @@ namespace Sample {
         initialize_system();
         initialize_device();
         initialize_session();
+
+        create_swapchains();
     }
 }
