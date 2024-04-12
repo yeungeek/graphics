@@ -32,7 +32,9 @@ namespace Sample {
     // openxr
     XrInstanceCreateInfoAndroidKHR instanceCreateInfoAndroid;
     XrInstance m_xrInstance{XR_NULL_HANDLE};
+    XrSession m_session{XR_NULL_HANDLE};
     XrSystemId m_systemId{XR_NULL_SYSTEM_ID};
+    XrSpace m_appSpace{XR_NULL_HANDLE};
 
     // config
     XrViewConfigurationType viewConfigType{XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO};
@@ -40,6 +42,7 @@ namespace Sample {
 
     XrGraphicsBindingOpenGLESAndroidKHR m_graphicsBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
 
+    std::vector<XrSpace> m_visualizedSpaces;
     // color
     std::array<float, 4> m_clearColor = {0.184313729f, 0.309803933f, 0.309803933f, 1.0f};
 
@@ -59,9 +62,64 @@ namespace Sample {
     }
 
     /**
-     * log
+     * utils
      */
+    namespace Math {
+        namespace Pose {
+            XrPosef Identity() {
+                XrPosef t{};
+                t.orientation.w = 1;
+                return t;
+            }
 
+            XrPosef Translation(const XrVector3f& translation) {
+                XrPosef t = Identity();
+                t.position = translation;
+                return t;
+            }
+
+            XrPosef RotateCCWAboutYAxis(float radians, XrVector3f translation) {
+                XrPosef t = Identity();
+                t.orientation.x = 0.f;
+                t.orientation.y = std::sin(radians * 0.5f);
+                t.orientation.z = 0.f;
+                t.orientation.w = std::cos(radians * 0.5f);
+                t.position = translation;
+                return t;
+            }
+        }  // namespace Pose
+    }  // namespace Math
+
+    inline XrReferenceSpaceCreateInfo GetXrReferenceSpaceCreateInfo(const std::string& referenceSpaceTypeStr) {
+        XrReferenceSpaceCreateInfo referenceSpaceCreateInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
+        referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::Identity();
+        if (EqualsIgnoreCase(referenceSpaceTypeStr, "View")) {
+            referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+        } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "ViewFront")) {
+            // Render head-locked 2m in front of device.
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::Translation({0.f, 0.f, -2.f}),
+                    referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
+        } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "Local")) {
+            referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
+        } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "Stage")) {
+            referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+        } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageLeft")) {
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(0.f, {-2.f, 0.f, -2.f});
+            referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+        } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageRight")) {
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(0.f, {2.f, 0.f, -2.f});
+            referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+        } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageLeftRotated")) {
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(3.14f / 3.f, {-2.f, 0.5f, -2.f});
+            referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+        } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageRightRotated")) {
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(-3.14f / 3.f, {2.f, 0.5f, -2.f});
+            referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
+        } else {
+            throw std::invalid_argument(Fmt("Unknown reference space type '%s'", referenceSpaceTypeStr.c_str()));
+        }
+        return referenceSpaceCreateInfo;
+    }
 
     /**
      * logic
@@ -91,6 +149,23 @@ namespace Sample {
         strcpy(createInfo.applicationInfo.applicationName, "OpenXR Sample");
         createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
         OPENXR_CHECK(xrCreateInstance(&createInfo, &m_xrInstance), "Failed to create OpenXR instance.")
+    }
+
+    void create_visualized_spaces() {
+        LOGI("###### create visualized spaces");
+        std::string visualizedSpaces[] = {"ViewFront",        "Local", "Stage", "StageLeft", "StageRight", "StageLeftRotated",
+                                          "StageRightRotated"};
+        for(const auto& visualizedSpace : visualizedSpaces){
+            XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = GetXrReferenceSpaceCreateInfo(visualizedSpace);
+            XrSpace space;
+            XrResult  res = xrCreateReferenceSpace(m_session,&referenceSpaceCreateInfo,&space);
+
+            if (XR_SUCCEEDED(res)) {
+                m_visualizedSpaces.push_back(space);
+            } else {
+                LOGE("###### Failed to create reference space %s with error %d", visualizedSpace.c_str(),res);
+            }
+        }
     }
 
     void initialize_system() {
@@ -140,7 +215,37 @@ namespace Sample {
         m_graphicsBinding.context = window.context.context;
 
         glEnable(GL_DEBUG_OUTPUT);
+        // init resources
+    }
 
+    void initialize_session() {
+        LOGI("###### initialize session");
+        XrSessionCreateInfo sessionCreateInfo{XR_TYPE_SESSION_CREATE_INFO};
+        sessionCreateInfo.next = (XrBaseInStructure*)&m_graphicsBinding;
+        sessionCreateInfo.systemId = m_systemId;
+        OPENXR_CHECK(xrCreateSession(m_xrInstance, &sessionCreateInfo, &m_session), "Failed to create session.")
+
+        uint32_t spaceCount;
+        OPENXR_CHECK(xrEnumerateReferenceSpaces(m_session, 0, &spaceCount, nullptr), "Failed to enumerate reference spaces.")
+        std::vector<XrReferenceSpaceType> spaces(spaceCount);
+        OPENXR_CHECK(xrEnumerateReferenceSpaces(m_session, (uint32_t)spaces.size(), &spaceCount, spaces.data()),
+                     "Failed to enumerate reference spaces.")
+
+        LOGI("###### reference spaces: %d",spaceCount);
+        for (XrReferenceSpaceType space: spaces) {
+            LOGI("###### reference name: %s",to_string(space));
+        }
+
+        //TODO actions
+        //TODO visualizedSpaces
+
+        create_visualized_spaces();
+
+        {
+            XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = GetXrReferenceSpaceCreateInfo("Local");
+            OPENXR_CHECK(xrCreateReferenceSpace(m_session,&referenceSpaceCreateInfo,&m_appSpace),
+                         "Failed to create reference space Local.")
+        }
     }
 
     extern "C"
@@ -182,5 +287,6 @@ namespace Sample {
         create_openxr_instance();
         initialize_system();
         initialize_device();
+        initialize_session();
     }
 }
