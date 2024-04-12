@@ -11,8 +11,12 @@
 #include <sys/system_properties.h>
 #include <EGL/egl.h>
 
+// system
+#include <array>
+
 #include "openxr/openxr_platform.h"
 #include "common/openxr_helper.h"
+#include "common/gfxwrapper_opengl.h"
 #include "common/common.h"
 
 #define LOG_TAG "sample"
@@ -30,11 +34,23 @@ namespace Sample {
     XrInstance m_xrInstance{XR_NULL_HANDLE};
     XrSystemId m_systemId{XR_NULL_SYSTEM_ID};
 
+    // config
+    XrViewConfigurationType viewConfigType{XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO};
+    XrEnvironmentBlendMode environmentBlendMode{XR_ENVIRONMENT_BLEND_MODE_OPAQUE};
+
+    XrGraphicsBindingOpenGLESAndroidKHR m_graphicsBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
+
+    // color
+    std::array<float, 4> m_clearColor = {0.184313729f, 0.309803933f, 0.309803933f, 1.0f};
+
+    ksGpuWindow window{};
+
+    GLint m_contextApiMajorVersion{0};
+
     struct AndroidAppState {
         ANativeWindow *NativeWindow = nullptr;
         bool Resumed = false;
     };
-
     /**
      * Process the next main command.
      */
@@ -84,6 +100,49 @@ namespace Sample {
         LOGI("###### Using system %d for form factor %s",m_systemId,to_string(systemInfo.formFactor));
     }
 
+    void initialize_device(){
+        // Extension function must be loaded by name
+        LOGI("###### initialize device");
+        PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetOpenGLESGraphicsRequirementsKHR  = nullptr;
+        OPENXR_CHECK(xrGetInstanceProcAddr(m_xrInstance, "xrGetOpenGLESGraphicsRequirementsKHR",
+                                                                 reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetOpenGLESGraphicsRequirementsKHR)),
+                     "Failed to get InstanceProcAddr for xrGetOpenGLESGraphicsRequirementsKHR.")
+
+        XrGraphicsRequirementsOpenGLESKHR graphicsRequirements{XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR};
+        OPENXR_CHECK(pfnGetOpenGLESGraphicsRequirementsKHR(m_xrInstance, m_systemId, &graphicsRequirements),
+                     "Failed to get OpenGL ES graphics requirements.")
+
+        // Initialize gl extension
+        ksDriverInstance driverInstance{};
+        ksGpuQueueInfo queueInfo{};
+        ksGpuSurfaceColorFormat colorFormat{KS_GPU_SURFACE_COLOR_FORMAT_B8G8R8A8};
+        ksGpuSurfaceDepthFormat depthFormat{KS_GPU_SURFACE_DEPTH_FORMAT_D24};
+        ksGpuSampleCount  sampleCount{KS_GPU_SAMPLE_COUNT_1};
+        if(!ksGpuWindow_Create(&window, &driverInstance, &queueInfo, 0,colorFormat, depthFormat, sampleCount, 640, 480,
+                               false)){
+            THROW("Unable to create GL Context")
+        }
+
+        GLint major = 0;
+        GLint minor = 0;
+        glGetIntegerv(GL_MAJOR_VERSION, &major);
+        glGetIntegerv(GL_MINOR_VERSION, &minor);
+
+        const XrVersion minApiVersionSupported = XR_MAKE_VERSION(major, minor, 0);
+        LOGI("###### OpenGL ES version %d.%d is supported, minXrVersion: %lu", major, minor, graphicsRequirements.minApiVersionSupported);
+        if(graphicsRequirements.minApiVersionSupported > minApiVersionSupported){
+            THROW("Minimum required OpenGL ES version is %d.%d, but runtime reports %d.%d is supported")
+        }
+
+        m_contextApiMajorVersion = major;
+        m_graphicsBinding.display = window.display;
+        m_graphicsBinding.config = (EGLConfig) 0;
+        m_graphicsBinding.context = window.context.context;
+
+        glEnable(GL_DEBUG_OUTPUT);
+
+    }
+
     extern "C"
     void android_main(struct android_app *app) {
         JNIEnv *Env;
@@ -122,6 +181,6 @@ namespace Sample {
         // Create OpenXR Instance
         create_openxr_instance();
         initialize_system();
-
+        initialize_device();
     }
 }
