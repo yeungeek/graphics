@@ -15,6 +15,7 @@
 #include <array>
 #include <list>
 #include <map>
+#include <thread>
 
 #include "openxr/openxr_platform.h"
 #include "common/openxr_helper.h"
@@ -39,8 +40,8 @@ namespace Sample {
     };
 
     // properties
-    void* applicationVM;
-    void* applicationActivity;
+    void *applicationVM;
+    void *applicationActivity;
 
     // openxr
     XrInstanceCreateInfoAndroidKHR instanceCreateInfoAndroid;
@@ -53,13 +54,16 @@ namespace Sample {
     XrViewConfigurationType viewConfigType{XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO};
     XrEnvironmentBlendMode environmentBlendMode{XR_ENVIRONMENT_BLEND_MODE_OPAQUE};
 
-    XrGraphicsBindingOpenGLESAndroidKHR m_graphicsBinding{XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
+    XrGraphicsBindingOpenGLESAndroidKHR m_graphicsBinding{
+            XR_TYPE_GRAPHICS_BINDING_OPENGL_ES_ANDROID_KHR};
+
+    XrEventDataBuffer m_eventDataBuffer;
 
     std::vector<XrSpace> m_visualizedSpaces;
     std::vector<XrViewConfigurationView> m_configViews;
     std::vector<Swapchain> m_swapchains;
 
-    std::map<XrSwapchain, std::vector<XrSwapchainImageBaseHeader*>> m_swapchainImages;
+    std::map<XrSwapchain, std::vector<XrSwapchainImageBaseHeader *>> m_swapchainImages;
     std::list<std::vector<XrSwapchainImageOpenGLESKHR>> m_swapchainImageBuffers;
     std::vector<XrView> m_views;
     int64_t m_colorSwapchainFormat{-1};
@@ -69,6 +73,11 @@ namespace Sample {
     ksGpuWindow window{};
 
     GLint m_contextApiMajorVersion{0};
+
+    XrSessionState m_sessionState{XR_SESSION_STATE_UNKNOWN};
+    bool m_sessionRunning{false};
+    bool requestRestart = false;
+    bool exitRenderLoop = false;
     /**
      * Process the next main command.
      */
@@ -87,7 +96,7 @@ namespace Sample {
                 return t;
             }
 
-            XrPosef Translation(const XrVector3f& translation) {
+            XrPosef Translation(const XrVector3f &translation) {
                 XrPosef t = Identity();
                 t.position = translation;
                 return t;
@@ -105,33 +114,44 @@ namespace Sample {
         }  // namespace Pose
     }  // namespace Math
 
-    inline XrReferenceSpaceCreateInfo GetXrReferenceSpaceCreateInfo(const std::string& referenceSpaceTypeStr) {
+    inline XrReferenceSpaceCreateInfo
+    GetXrReferenceSpaceCreateInfo(const std::string &referenceSpaceTypeStr) {
         XrReferenceSpaceCreateInfo referenceSpaceCreateInfo{XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
         referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::Identity();
         if (EqualsIgnoreCase(referenceSpaceTypeStr, "View")) {
             referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
         } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "ViewFront")) {
             // Render head-locked 2m in front of device.
-            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::Translation({0.f, 0.f, -2.f}),
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::Translation(
+                    {0.f, 0.f, -2.f}),
                     referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
         } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "Local")) {
             referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
         } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "Stage")) {
             referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
         } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageLeft")) {
-            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(0.f, {-2.f, 0.f, -2.f});
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(0.f,
+                                                                                            {-2.f,
+                                                                                             0.f,
+                                                                                             -2.f});
             referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
         } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageRight")) {
-            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(0.f, {2.f, 0.f, -2.f});
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(0.f,
+                                                                                            {2.f,
+                                                                                             0.f,
+                                                                                             -2.f});
             referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
         } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageLeftRotated")) {
-            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(3.14f / 3.f, {-2.f, 0.5f, -2.f});
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(
+                    3.14f / 3.f, {-2.f, 0.5f, -2.f});
             referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
         } else if (EqualsIgnoreCase(referenceSpaceTypeStr, "StageRightRotated")) {
-            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(-3.14f / 3.f, {2.f, 0.5f, -2.f});
+            referenceSpaceCreateInfo.poseInReferenceSpace = Math::Pose::RotateCCWAboutYAxis(
+                    -3.14f / 3.f, {2.f, 0.5f, -2.f});
             referenceSpaceCreateInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_STAGE;
         } else {
-            throw std::invalid_argument(Fmt("Unknown reference space type '%s'", referenceSpaceTypeStr.c_str()));
+            throw std::invalid_argument(
+                    Fmt("Unknown reference space type '%s'", referenceSpaceTypeStr.c_str()));
         }
         return referenceSpaceCreateInfo;
     }
@@ -156,6 +176,101 @@ namespace Sample {
         return *swapchainFormatIt;
     }
 
+    bool IsSessionRunning() { return m_sessionRunning; }
+
+    void HandleSessionStateChangedEvent(const XrEventDataSessionStateChanged& stateChangedEvent, bool* exitRenderLoop,
+                                        bool* requestRestart) {
+        const XrSessionState oldState = m_sessionState;
+        m_sessionState = stateChangedEvent.state;
+
+        LOGI("XrEventDataSessionStateChanged: state %s->%s session=%lld time=%ld", to_string(oldState),
+                     to_string(m_sessionState), stateChangedEvent.session, stateChangedEvent.time);
+
+        if((stateChangedEvent.session != XR_NULL_HANDLE) && (stateChangedEvent.session != m_session)){
+            LOGW("###### XrEventDataSessionStateChanged for unknown session");
+            return;
+        }
+
+        switch (m_sessionState) {
+            case XR_SESSION_STATE_READY: {
+                XrSessionBeginInfo sessionBeginInfo{XR_TYPE_SESSION_BEGIN_INFO};
+                sessionBeginInfo.primaryViewConfigurationType = viewConfigType;
+                xrBeginSession(m_session,&sessionBeginInfo);
+                m_sessionRunning = true;
+                break;
+            }
+            case XR_SESSION_STATE_STOPPING:{
+                m_sessionRunning = false;
+                xrEndSession(m_session);
+                break;
+            }
+            case XR_SESSION_STATE_EXITING:{
+                *exitRenderLoop = true;
+                *requestRestart = false;
+                break;
+            }
+            case XR_SESSION_STATE_LOSS_PENDING:{
+                *exitRenderLoop = true;
+                *requestRestart = true;
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    const XrEventDataBaseHeader* TryReadNextEvent() {
+        XrEventDataBaseHeader* baseHeader = reinterpret_cast<XrEventDataBaseHeader*>(&m_eventDataBuffer);
+        *baseHeader = {XR_TYPE_EVENT_DATA_BUFFER};
+        const XrResult xr = xrPollEvent(m_xrInstance, &m_eventDataBuffer);
+        if (xr == XR_SUCCESS) {
+            if (baseHeader->type == XR_TYPE_EVENT_DATA_EVENTS_LOST) {
+                const XrEventDataEventsLost* const eventsLost = reinterpret_cast<const XrEventDataEventsLost*>(baseHeader);
+                LOGI("###### %d events lost", eventsLost->lostEventCount);
+            }
+
+            return baseHeader;
+        }
+
+        if(xr ==  XR_EVENT_UNAVAILABLE){
+            return nullptr;
+        }
+
+        THROW_XR(xr,"xrPollEvent")
+    }
+
+    void PollEvents(bool* exitRenderLoop, bool* requestRestart){
+        *exitRenderLoop = *requestRestart = false;
+
+        while (const XrEventDataBaseHeader* event = TryReadNextEvent()){
+            switch (event->type) {
+                case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:{
+                    const auto& instanceLost = *reinterpret_cast<const XrEventDataInstanceLossPending*>(event);
+                    LOGI("###### XrEventDataInstanceLossPending by %ld", instanceLost.lossTime);
+                    *exitRenderLoop = true;
+                    *requestRestart = true;
+                    return;
+                }
+                case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:{
+                    auto sessionStateChanged = *reinterpret_cast<const XrEventDataSessionStateChanged*>(event);
+                    HandleSessionStateChangedEvent(sessionStateChanged, exitRenderLoop, requestRestart);
+                    break;
+                }
+                case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:{
+                    break;
+                }
+                case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:{
+                    break;
+                }
+                default:{
+                    LOGI("###### Ignoring event type %d", event->type);
+                    break;
+                }
+            }
+        }
+    }
+
+
     std::vector<XrSwapchainImageBaseHeader *> AllocateSwapchainImageStructs(
             uint32_t capacity, const XrSwapchainCreateInfo & /*swapchainCreateInfo*/) {
         // Allocate and initialize the buffer of image structs (must be sequential in memory for xrEnumerateSwapchainImages).
@@ -177,61 +292,75 @@ namespace Sample {
      * logic
      */
     void create_android_instance() {
-        instanceCreateInfoAndroid ={XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
+        instanceCreateInfoAndroid = {XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
         instanceCreateInfoAndroid.applicationVM = applicationVM;
         instanceCreateInfoAndroid.applicationActivity = applicationActivity;
     }
 
-    void create_openxr_instance(){
+    void create_openxr_instance() {
         LOGI("###### create openxr instance");
-        std::vector<const char*> extensions;
-        const std::vector<std::string> platformExtensions = {XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME};
-        std::transform(platformExtensions.begin(), platformExtensions.end(), std::back_inserter(extensions),
-                       [](const std::string& ext) { return ext.c_str(); });
+        std::vector<const char *> extensions;
+        const std::vector<std::string> platformExtensions = {
+                XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME};
+        std::transform(platformExtensions.begin(), platformExtensions.end(),
+                       std::back_inserter(extensions),
+                       [](const std::string &ext) { return ext.c_str(); });
 
-        const std::vector<std::string> graphicsExtensions = {XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME};
-        std::transform(graphicsExtensions.begin(), graphicsExtensions.end(), std::back_inserter(extensions),
-                       [](const std::string& ext) { return ext.c_str(); });
+        const std::vector<std::string> graphicsExtensions = {
+                XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME};
+        std::transform(graphicsExtensions.begin(), graphicsExtensions.end(),
+                       std::back_inserter(extensions),
+                       [](const std::string &ext) { return ext.c_str(); });
 
         XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
-        createInfo.next = (XrBaseInStructure*)&instanceCreateInfoAndroid;
-        createInfo.enabledExtensionCount = (uint32_t)extensions.size();
+        createInfo.next = (XrBaseInStructure *) &instanceCreateInfoAndroid;
+        createInfo.enabledExtensionCount = (uint32_t) extensions.size();
         createInfo.enabledExtensionNames = extensions.data();
 
         strcpy(createInfo.applicationInfo.applicationName, "OpenXR Sample");
         createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
-        OPENXR_CHECK(xrCreateInstance(&createInfo, &m_xrInstance), "Failed to create OpenXR instance.")
+        OPENXR_CHECK(xrCreateInstance(&createInfo, &m_xrInstance),
+                     "Failed to create OpenXR instance.")
     }
 
     void create_visualized_spaces() {
         LOGI("###### create visualized spaces");
-        std::string visualizedSpaces[] = {"ViewFront",        "Local", "Stage", "StageLeft", "StageRight", "StageLeftRotated",
+        std::string visualizedSpaces[] = {"ViewFront", "Local", "Stage", "StageLeft", "StageRight",
+                                          "StageLeftRotated",
                                           "StageRightRotated"};
-        for(const auto& visualizedSpace : visualizedSpaces){
-            XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = GetXrReferenceSpaceCreateInfo(visualizedSpace);
+        for (const auto &visualizedSpace: visualizedSpaces) {
+            XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = GetXrReferenceSpaceCreateInfo(
+                    visualizedSpace);
             XrSpace space;
-            XrResult  res = xrCreateReferenceSpace(m_session,&referenceSpaceCreateInfo,&space);
+            XrResult res = xrCreateReferenceSpace(m_session, &referenceSpaceCreateInfo, &space);
 
             if (XR_SUCCEEDED(res)) {
                 m_visualizedSpaces.push_back(space);
             } else {
-                LOGE("###### Failed to create reference space %s with error %d", visualizedSpace.c_str(),res);
+                LOGE("###### Failed to create reference space %s with error %d",
+                     visualizedSpace.c_str(), res);
             }
         }
     }
 
-    void create_swapchains(){
+    void create_swapchains() {
         XrSystemProperties systemProperties{XR_TYPE_SYSTEM_PROPERTIES};
-        OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemId, &systemProperties), "Failed to get system properties.")
-        LOGI("###### Using system %d with name %s and vendorId %d",m_systemId,systemProperties.systemName,systemProperties.vendorId);
+        OPENXR_CHECK(xrGetSystemProperties(m_xrInstance, m_systemId, &systemProperties),
+                     "Failed to get system properties.")
+        LOGI("###### Using system %d with name %s and vendorId %d", m_systemId,
+             systemProperties.systemName, systemProperties.vendorId);
 
         // Query and cache view configuration views.
         uint32_t viewCount;
-        OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance,m_systemId,viewConfigType,0,&viewCount,
-                                                       nullptr),"Failed to enumerate configuration views")
-        m_configViews.resize(viewCount,{XR_TYPE_VIEW_CONFIGURATION_VIEW});
-        OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance,m_systemId,viewConfigType,viewCount,&viewCount,
-                                                       m_configViews.data()),"Failed to enumerate configuration views")
+        OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemId, viewConfigType, 0,
+                                                       &viewCount,
+                                                       nullptr),
+                     "Failed to enumerate configuration views")
+        m_configViews.resize(viewCount, {XR_TYPE_VIEW_CONFIGURATION_VIEW});
+        OPENXR_CHECK(xrEnumerateViewConfigurationViews(m_xrInstance, m_systemId, viewConfigType,
+                                                       viewCount, &viewCount,
+                                                       m_configViews.data()),
+                     "Failed to enumerate configuration views")
         // Create and cache view buffer for xrLocateViews later.
         m_views.resize(viewCount, {XR_TYPE_VIEW});
 
@@ -240,8 +369,10 @@ namespace Sample {
             OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, 0, &swapchainFormatCount, nullptr),
                          "Failed to get swapchain format count.")
             std::vector<int64_t> swapchainFormats(swapchainFormatCount);
-            OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, (uint32_t)swapchainFormats.size(), &swapchainFormatCount,
-                                                      swapchainFormats.data()), "Failed to get swapchain formats.")
+            OPENXR_CHECK(xrEnumerateSwapchainFormats(m_session, (uint32_t) swapchainFormats.size(),
+                                                     &swapchainFormatCount,
+                                                     swapchainFormats.data()),
+                         "Failed to get swapchain formats.")
 
 
             m_colorSwapchainFormat = SelectColorSwapchainFormat(swapchainFormats);
@@ -249,7 +380,7 @@ namespace Sample {
             // Print swapchain formats and the selected one.
             {
                 std::string swapchainFormatsString;
-                for (int64_t format : swapchainFormats) {
+                for (int64_t format: swapchainFormats) {
                     const bool selected = format == m_colorSwapchainFormat;
                     swapchainFormatsString += " ";
                     if (selected) {
@@ -260,15 +391,18 @@ namespace Sample {
                         swapchainFormatsString += "]";
                     }
                 }
-                LOGI("###### Swapchain formats: %s, selected format: %d", swapchainFormatsString.c_str(),
-                      m_colorSwapchainFormat);
+                LOGI("###### Swapchain formats: %s, selected format: %d",
+                     swapchainFormatsString.c_str(),
+                     m_colorSwapchainFormat);
             }
 
             // Create a swapchain for each view.
             for (uint32_t i = 0; i < viewCount; i++) {
-                const XrViewConfigurationView& vp = m_configViews[i];
-                LOGI("Creating swapchain for view %d with dimensions Width=%d Height=%d SampleCount=%d", i,
-                    vp.recommendedImageRectWidth, vp.recommendedImageRectHeight, vp.recommendedSwapchainSampleCount);
+                const XrViewConfigurationView &vp = m_configViews[i];
+                LOGI("Creating swapchain for view %d with dimensions Width=%d Height=%d SampleCount=%d",
+                     i,
+                     vp.recommendedImageRectWidth, vp.recommendedImageRectHeight,
+                     vp.recommendedSwapchainSampleCount);
 
                 // Create the swapchain.
                 XrSwapchainCreateInfo swapchainCreateInfo{XR_TYPE_SWAPCHAIN_CREATE_INFO};
@@ -279,7 +413,8 @@ namespace Sample {
                 swapchainCreateInfo.mipCount = 1;
                 swapchainCreateInfo.faceCount = 1;
                 swapchainCreateInfo.sampleCount = vp.recommendedSwapchainSampleCount;
-                swapchainCreateInfo.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+                swapchainCreateInfo.usageFlags =
+                        XR_SWAPCHAIN_USAGE_SAMPLED_BIT | XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
                 Swapchain swapchain;
                 swapchain.width = swapchainCreateInfo.width;
                 swapchain.height = swapchainCreateInfo.height;
@@ -291,11 +426,14 @@ namespace Sample {
                 uint32_t imageCount;
                 OPENXR_CHECK(xrEnumerateSwapchainImages(swapchain.handle, 0, &imageCount, nullptr),
                              "Failed to get swapchain image count.")
-                std::vector<XrSwapchainImageBaseHeader*> swapchainImages = AllocateSwapchainImageStructs(imageCount, swapchainCreateInfo);
-                OPENXR_CHECK(xrEnumerateSwapchainImages(swapchain.handle, imageCount, &imageCount, swapchainImages[0]),
+                std::vector<XrSwapchainImageBaseHeader *> swapchainImages = AllocateSwapchainImageStructs(
+                        imageCount, swapchainCreateInfo);
+                OPENXR_CHECK(xrEnumerateSwapchainImages(swapchain.handle, imageCount, &imageCount,
+                                                        swapchainImages[0]),
                              "Failed to enumerate swapchain images.")
 
-                m_swapchainImages.insert(std::make_pair(swapchain.handle,std::move(swapchainImages)));
+                m_swapchainImages.insert(
+                        std::make_pair(swapchain.handle, std::move(swapchainImages)));
             }
         }
     }
@@ -303,20 +441,24 @@ namespace Sample {
     void initialize_system() {
         XrSystemGetInfo systemInfo{XR_TYPE_SYSTEM_GET_INFO};
         systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-        OPENXR_CHECK(xrGetSystem(m_xrInstance, &systemInfo, &m_systemId), "Failed to get system info.")
-        LOGI("###### Using system %d for form factor %s",m_systemId,to_string(systemInfo.formFactor));
+        OPENXR_CHECK(xrGetSystem(m_xrInstance, &systemInfo, &m_systemId),
+                     "Failed to get system info.")
+        LOGI("###### Using system %d for form factor %s", m_systemId,
+             to_string(systemInfo.formFactor));
     }
 
-    void initialize_device(){
+    void initialize_device() {
         // Extension function must be loaded by name
         LOGI("###### initialize device");
-        PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetOpenGLESGraphicsRequirementsKHR  = nullptr;
+        PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetOpenGLESGraphicsRequirementsKHR = nullptr;
         OPENXR_CHECK(xrGetInstanceProcAddr(m_xrInstance, "xrGetOpenGLESGraphicsRequirementsKHR",
-                                                                 reinterpret_cast<PFN_xrVoidFunction*>(&pfnGetOpenGLESGraphicsRequirementsKHR)),
+                                           reinterpret_cast<PFN_xrVoidFunction *>(&pfnGetOpenGLESGraphicsRequirementsKHR)),
                      "Failed to get InstanceProcAddr for xrGetOpenGLESGraphicsRequirementsKHR.")
 
-        XrGraphicsRequirementsOpenGLESKHR graphicsRequirements{XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR};
-        OPENXR_CHECK(pfnGetOpenGLESGraphicsRequirementsKHR(m_xrInstance, m_systemId, &graphicsRequirements),
+        XrGraphicsRequirementsOpenGLESKHR graphicsRequirements{
+                XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR};
+        OPENXR_CHECK(pfnGetOpenGLESGraphicsRequirementsKHR(m_xrInstance, m_systemId,
+                                                           &graphicsRequirements),
                      "Failed to get OpenGL ES graphics requirements.")
 
         // Initialize gl extension
@@ -324,9 +466,10 @@ namespace Sample {
         ksGpuQueueInfo queueInfo{};
         ksGpuSurfaceColorFormat colorFormat{KS_GPU_SURFACE_COLOR_FORMAT_B8G8R8A8};
         ksGpuSurfaceDepthFormat depthFormat{KS_GPU_SURFACE_DEPTH_FORMAT_D24};
-        ksGpuSampleCount  sampleCount{KS_GPU_SAMPLE_COUNT_1};
-        if(!ksGpuWindow_Create(&window, &driverInstance, &queueInfo, 0,colorFormat, depthFormat, sampleCount, 640, 480,
-                               false)){
+        ksGpuSampleCount sampleCount{KS_GPU_SAMPLE_COUNT_1};
+        if (!ksGpuWindow_Create(&window, &driverInstance, &queueInfo, 0, colorFormat, depthFormat,
+                                sampleCount, 640, 480,
+                                false)) {
             THROW("Unable to create GL Context")
         }
 
@@ -336,8 +479,9 @@ namespace Sample {
         glGetIntegerv(GL_MINOR_VERSION, &minor);
 
         const XrVersion minApiVersionSupported = XR_MAKE_VERSION(major, minor, 0);
-        LOGI("###### OpenGL ES version %d.%d is supported, minXrVersion: %lu", major, minor, graphicsRequirements.minApiVersionSupported);
-        if(graphicsRequirements.minApiVersionSupported > minApiVersionSupported){
+        LOGI("###### OpenGL ES version %d.%d is supported, minXrVersion: %lu", major, minor,
+             graphicsRequirements.minApiVersionSupported);
+        if (graphicsRequirements.minApiVersionSupported > minApiVersionSupported) {
             THROW("Minimum required OpenGL ES version is %d.%d, but runtime reports %d.%d is supported")
         }
 
@@ -353,19 +497,22 @@ namespace Sample {
     void initialize_session() {
         LOGI("###### initialize session");
         XrSessionCreateInfo sessionCreateInfo{XR_TYPE_SESSION_CREATE_INFO};
-        sessionCreateInfo.next = (XrBaseInStructure*)&m_graphicsBinding;
+        sessionCreateInfo.next = (XrBaseInStructure *) &m_graphicsBinding;
         sessionCreateInfo.systemId = m_systemId;
-        OPENXR_CHECK(xrCreateSession(m_xrInstance, &sessionCreateInfo, &m_session), "Failed to create session.")
+        OPENXR_CHECK(xrCreateSession(m_xrInstance, &sessionCreateInfo, &m_session),
+                     "Failed to create session.")
 
         uint32_t spaceCount;
-        OPENXR_CHECK(xrEnumerateReferenceSpaces(m_session, 0, &spaceCount, nullptr), "Failed to enumerate reference spaces.")
+        OPENXR_CHECK(xrEnumerateReferenceSpaces(m_session, 0, &spaceCount, nullptr),
+                     "Failed to enumerate reference spaces.")
         std::vector<XrReferenceSpaceType> spaces(spaceCount);
-        OPENXR_CHECK(xrEnumerateReferenceSpaces(m_session, (uint32_t)spaces.size(), &spaceCount, spaces.data()),
+        OPENXR_CHECK(xrEnumerateReferenceSpaces(m_session, (uint32_t) spaces.size(), &spaceCount,
+                                                spaces.data()),
                      "Failed to enumerate reference spaces.")
 
-        LOGI("###### reference spaces: %d",spaceCount);
+        LOGI("###### reference spaces: %d", spaceCount);
         for (XrReferenceSpaceType space: spaces) {
-            LOGI("###### reference name: %s",to_string(space));
+            LOGI("###### reference name: %s", to_string(space));
         }
 
         //TODO actions
@@ -374,8 +521,9 @@ namespace Sample {
         create_visualized_spaces();
 
         {
-            XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = GetXrReferenceSpaceCreateInfo("Local");
-            OPENXR_CHECK(xrCreateReferenceSpace(m_session,&referenceSpaceCreateInfo,&m_appSpace),
+            XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = GetXrReferenceSpaceCreateInfo(
+                    "Local");
+            OPENXR_CHECK(xrCreateReferenceSpace(m_session, &referenceSpaceCreateInfo, &m_appSpace),
                          "Failed to create reference space Local.")
         }
     }
@@ -400,12 +548,12 @@ namespace Sample {
 
 
         // Initialize the loader
-        PFN_xrInitializeLoaderKHR  initializeLoader = nullptr;
+        PFN_xrInitializeLoaderKHR initializeLoader = nullptr;
         OPENXR_CHECK(xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
                                            (PFN_xrVoidFunction *) &initializeLoader),
                      "Failed to get InstanceProcAddr for xrInitializeLoaderKHR.")
 
-        if(!initializeLoader) {
+        if (!initializeLoader) {
             LOGE("Failed to get InstanceProcAddr for xrInitializeLoaderKHR.");
             return;
         }
@@ -413,7 +561,7 @@ namespace Sample {
         XrLoaderInitInfoAndroidKHR loaderInitInfoAndroid = {XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};
         loaderInitInfoAndroid.applicationVM = app->activity->vm;
         loaderInitInfoAndroid.applicationContext = app->activity->clazz;
-        initializeLoader((const XrLoaderInitInfoBaseHeaderKHR*)&loaderInitInfoAndroid);
+        initializeLoader((const XrLoaderInitInfoBaseHeaderKHR *) &loaderInitInfoAndroid);
 
         // Create OpenXR Instance
         create_openxr_instance();
@@ -422,5 +570,41 @@ namespace Sample {
         initialize_session();
 
         create_swapchains();
+
+        // loop
+        while (app->destroyRequested == 0) {
+            // read all pending events;
+            for (;;) {
+                int events;
+                struct android_poll_source *source;
+                const int timeoutMilliseconds = (!appState.Resumed && IsSessionRunning() &&
+                                                 app->destroyRequested == 0) ? -1 : 0;
+                if(ALooper_pollAll(timeoutMilliseconds, nullptr, &events, (void **) &source) < 0){
+                    break;
+                }
+
+                // process the event
+                if (source != nullptr) {
+                    source->process(app, source);
+                }
+            }
+
+            // poll events
+            PollEvents(&exitRenderLoop, &requestRestart);
+            if(exitRenderLoop){
+                ANativeActivity_finish(app->activity);
+                continue;
+            }
+
+            if(!IsSessionRunning()){
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+
+            // pollaction
+
+        }
+
+        app->activity->vm->DetachCurrentThread();
     }
 }
