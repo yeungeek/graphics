@@ -21,6 +21,8 @@
 #include "common/openxr_helper.h"
 #include "common/gfxwrapper_opengl.h"
 #include "common/common.h"
+#include "common/geometry.h"
+#include "common/xr_linear.h"
 
 #define LOG_TAG "sample"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -28,6 +30,34 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace Sample {
+
+    static const char *VertexShaderGlsl = R"_(#version 320 es
+
+    in vec3 VertexPos;
+    in vec3 VertexColor;
+
+    out vec3 PSVertexColor;
+
+    uniform mat4 ModelViewProjection;
+
+    void main() {
+       gl_Position = ModelViewProjection * vec4(VertexPos, 1.0);
+       PSVertexColor = VertexColor;
+    }
+    )_";
+
+    // The version statement has come on first line.
+    static const char *FragmentShaderGlsl = R"_(#version 320 es
+
+    in lowp vec3 PSVertexColor;
+    out lowp vec4 FragColor;
+
+    void main() {
+       FragColor = vec4(PSVertexColor, 1);
+    }
+    )_";
+
+
     struct AndroidAppState {
         ANativeWindow *NativeWindow = nullptr;
         bool Resumed = false;
@@ -72,7 +102,9 @@ namespace Sample {
     std::list<std::vector<XrSwapchainImageOpenGLESKHR>> m_swapchainImageBuffers;
     std::vector<XrView> m_views;
     int64_t m_colorSwapchainFormat{-1};
-    // color
+
+    // Map color buffer to associated depth buffer. This map is populated on demand.
+    std::map<uint32_t, uint32_t> m_colorToDepthMap;
     std::array<float, 4> m_clearColor = {0.184313729f, 0.309803933f, 0.309803933f, 1.0f};
 //    std::array<float, 4> m_clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
 
@@ -80,6 +112,13 @@ namespace Sample {
 
     GLint m_contextApiMajorVersion{0};
     GLuint m_swapchainFramebuffer{0};
+    GLuint m_program{0};
+    GLint m_modelViewProjectionUniformLocation{0};
+    GLint m_vertexAttribCoords{0};
+    GLint m_vertexAttribColor{0};
+    GLuint m_vao{0};
+    GLuint m_cubeVertexBuffer{0};
+    GLuint m_cubeIndexBuffer{0};
 
     XrSessionState m_sessionState{XR_SESSION_STATE_UNKNOWN};
     bool m_sessionRunning{false};
@@ -90,7 +129,75 @@ namespace Sample {
      * Process the next main command.
      */
     static void app_handle_cmd(struct android_app *app, int32_t cmd) {
+        AndroidAppState *appState = (AndroidAppState *) app->userData;
 
+        switch (cmd) {
+            // There is no APP_CMD_CREATE. The ANativeActivity creates the
+            // application thread from onCreate(). The application thread
+            // then calls android_main().
+            case APP_CMD_START: {
+                LOGI("    APP_CMD_START");
+                LOGI("onStart()");
+                break;
+            }
+            case APP_CMD_RESUME: {
+                LOGI("onResume()");
+                LOGI("    APP_CMD_RESUME");
+                appState->Resumed = true;
+                break;
+            }
+            case APP_CMD_PAUSE: {
+                LOGI("onPause()");
+                LOGI("    APP_CMD_PAUSE");
+                appState->Resumed = false;
+                break;
+            }
+            case APP_CMD_STOP: {
+                LOGI("onStop()");
+                LOGI("    APP_CMD_STOP");
+                break;
+            }
+            case APP_CMD_DESTROY: {
+                LOGI("onDestroy()");
+                LOGI("    APP_CMD_DESTROY");
+                appState->NativeWindow = NULL;
+                break;
+            }
+            case APP_CMD_INIT_WINDOW: {
+                LOGI("surfaceCreated()");
+                LOGI("    APP_CMD_INIT_WINDOW");
+                appState->NativeWindow = app->window;
+                break;
+            }
+            case APP_CMD_TERM_WINDOW: {
+                LOGI("surfaceDestroyed()");
+                LOGI("    APP_CMD_TERM_WINDOW");
+                appState->NativeWindow = NULL;
+                break;
+            }
+        }
+    }
+
+    void CheckShader(GLuint shader) {
+        GLint r = 0;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &r);
+        if (r == GL_FALSE) {
+            GLchar msg[4096] = {};
+            GLsizei length;
+            glGetShaderInfoLog(shader, sizeof(msg), &length, msg);
+            THROW(Fmt("Compile shader failed: %s", msg));
+        }
+    }
+
+    void CheckProgram(GLuint prog) {
+        GLint r = 0;
+        glGetProgramiv(prog, GL_LINK_STATUS, &r);
+        if (r == GL_FALSE) {
+            GLchar msg[4096] = {};
+            GLsizei length;
+            glGetProgramInfoLog(prog, sizeof(msg), &length, msg);
+            THROW(Fmt("Link program failed: %s", msg));
+        }
     }
 
     /**
@@ -184,6 +291,36 @@ namespace Sample {
         return *swapchainFormatIt;
     }
 
+    uint32_t GetDepthTexture(uint32_t colorTexture) {
+        // If a depth-stencil view has already been created for this back-buffer, use it.
+        auto depthBufferIt = m_colorToDepthMap.find(colorTexture);
+        if (depthBufferIt != m_colorToDepthMap.end()) {
+            return depthBufferIt->second;
+        }
+
+        // This back-buffer has no corresponding depth-stencil texture, so create one with matching dimensions.
+
+        GLint width;
+        GLint height;
+        glBindTexture(GL_TEXTURE_2D, colorTexture);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &width);
+        glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &height);
+
+        uint32_t depthTexture;
+        glGenTextures(1, &depthTexture);
+        glBindTexture(GL_TEXTURE_2D, depthTexture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, width, height, 0, GL_DEPTH_COMPONENT,
+                     GL_UNSIGNED_INT, nullptr);
+
+        m_colorToDepthMap.insert(std::make_pair(colorTexture, depthTexture));
+
+        return depthTexture;
+    }
+
     bool IsSessionRunning() { return m_sessionRunning; }
 
     void HandleSessionStateChangedEvent(const XrEventDataSessionStateChanged &stateChangedEvent,
@@ -210,9 +347,9 @@ namespace Sample {
                 m_sessionRunning = true;
 
                 //TODO for test
-                std::this_thread::sleep_for(std::chrono::seconds (50));
-                LOGW("###### start xrRequestExitSession");
-                xrRequestExitSession(m_session);
+//                std::this_thread::sleep_for(std::chrono::seconds (50));
+//                LOGW("###### start xrRequestExitSession");
+//                xrRequestExitSession(m_session);
                 break;
             }
             case XR_SESSION_STATE_STOPPING: {
@@ -464,6 +601,56 @@ namespace Sample {
              to_string(systemInfo.formFactor));
     }
 
+    void initialize_resources() {
+        glGenFramebuffers(1, &m_swapchainFramebuffer);
+
+        GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(vertexShader, 1, &VertexShaderGlsl, nullptr);
+        glCompileShader(vertexShader);
+        CheckShader(vertexShader);
+
+        GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(fragmentShader, 1, &FragmentShaderGlsl, nullptr);
+        glCompileShader(fragmentShader);
+        CheckShader(fragmentShader);
+
+        m_program = glCreateProgram();
+        glAttachShader(m_program, vertexShader);
+        glAttachShader(m_program, fragmentShader);
+        glLinkProgram(m_program);
+        CheckProgram(m_program);
+
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+
+        m_modelViewProjectionUniformLocation = glGetUniformLocation(m_program,
+                                                                    "ModelViewProjection");
+
+        m_vertexAttribCoords = glGetAttribLocation(m_program, "VertexPos");
+        m_vertexAttribColor = glGetAttribLocation(m_program, "VertexColor");
+
+        glGenBuffers(1, &m_cubeVertexBuffer);
+        glBindBuffer(GL_ARRAY_BUFFER, m_cubeVertexBuffer);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(Geometry::c_cubeVertices), Geometry::c_cubeVertices,
+                     GL_STATIC_DRAW);
+
+        glGenBuffers(1, &m_cubeIndexBuffer);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIndexBuffer);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(Geometry::c_cubeIndices),
+                     Geometry::c_cubeIndices, GL_STATIC_DRAW);
+
+        glGenVertexArrays(1, &m_vao);
+        glBindVertexArray(m_vao);
+        glEnableVertexAttribArray(m_vertexAttribCoords);
+        glEnableVertexAttribArray(m_vertexAttribColor);
+        glBindBuffer(GL_ARRAY_BUFFER, m_cubeVertexBuffer);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_cubeIndexBuffer);
+        glVertexAttribPointer(m_vertexAttribCoords, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex),
+                              nullptr);
+        glVertexAttribPointer(m_vertexAttribColor, 3, GL_FLOAT, GL_FALSE, sizeof(Geometry::Vertex),
+                              reinterpret_cast<const void *>(sizeof(XrVector3f)));
+    }
+
     void initialize_device() {
         // Extension function must be loaded by name
         LOGI("###### initialize device");
@@ -545,23 +732,69 @@ namespace Sample {
         }
     }
 
-    void render_view(const XrCompositionLayerProjectionView& layerView, const XrSwapchainImageBaseHeader* swapchainImage,
-                     int64_t swapchainFormat, const std::vector<Cube>& cubes){
-        glBindFramebuffer(GL_FRAMEBUFFER,m_swapchainFramebuffer);
+    void render_view(const XrCompositionLayerProjectionView &layerView,
+                     const XrSwapchainImageBaseHeader *swapchainImage,
+                     int64_t swapchainFormat, const std::vector<Cube> &cubes) {
+        UNUSED_PARM(swapchainFormat)
+        glBindFramebuffer(GL_FRAMEBUFFER, m_swapchainFramebuffer);
 
-        const uint32_t colorTexture = reinterpret_cast<const XrSwapchainImageOpenGLESKHR*>(swapchainImage)->image;
+        const uint32_t colorTexture = reinterpret_cast<const XrSwapchainImageOpenGLESKHR *>(swapchainImage)->image;
 
         glViewport(static_cast<GLint>(layerView.subImage.imageRect.offset.x),
                    static_cast<GLint>(layerView.subImage.imageRect.offset.y),
                    static_cast<GLsizei>(layerView.subImage.imageRect.extent.width),
                    static_cast<GLsizei>(layerView.subImage.imageRect.extent.height));
 
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0);
+        glFrontFace(GL_CW);
+        glCullFace(GL_BACK);
+        glEnable(GL_CULL_FACE);
+        glEnable(GL_DEPTH_TEST);
+
+        const uint32_t depthTexture = GetDepthTexture(colorTexture);
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture,
+                               0);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
         // Clear swapchain and depth buffer.
         glClearColor(m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]);
         glClearDepthf(1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        // Set shaders and uniform variables.
+        glUseProgram(m_program);
 
+        const auto &pose = layerView.pose;
+        XrMatrix4x4f proj;
+        XrMatrix4x4f_CreateProjectionFov(&proj, GRAPHICS_OPENGL_ES, layerView.fov, 0.05f, 100.0f);
+        XrMatrix4x4f toView;
+        XrVector3f scale{1.f, 1.f, 1.f};
+        XrMatrix4x4f_CreateTranslationRotationScale(&toView, &pose.position, &pose.orientation,
+                                                    &scale);
+        XrMatrix4x4f view;
+        XrMatrix4x4f_InvertRigidBody(&view, &toView);
+        XrMatrix4x4f vp;
+        XrMatrix4x4f_Multiply(&vp, &proj, &view);
+
+        // Set cube primitive data.
+        glBindVertexArray(m_vao);
+
+        // Render each cube
+        for (const Cube &cube: cubes) {
+            // Compute the model-view-projection transform and set it..
+            XrMatrix4x4f model;
+            XrMatrix4x4f_CreateTranslationRotationScale(&model, &cube.Pose.position,
+                                                        &cube.Pose.orientation, &cube.Scale);
+            XrMatrix4x4f mvp;
+            XrMatrix4x4f_Multiply(&mvp, &vp, &model);
+            glUniformMatrix4fv(m_modelViewProjectionUniformLocation, 1, GL_FALSE,
+                               reinterpret_cast<const GLfloat *>(&mvp));
+
+            // Draw the cube.
+            glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(ArraySize(Geometry::c_cubeIndices)),
+                           GL_UNSIGNED_SHORT, nullptr);
+        }
+
+        glBindVertexArray(0);
+        glUseProgram(0);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
@@ -592,7 +825,6 @@ namespace Sample {
 
         // render cube
         std::vector<Cube> cubes;
-
         for (XrSpace visualizedSpace: m_visualizedSpaces) {
             XrSpaceLocation spaceLocation{XR_TYPE_SPACE_LOCATION};
             res = xrLocateSpace(visualizedSpace, m_appSpace, predictedDisplayTime, &spaceLocation);
@@ -616,9 +848,9 @@ namespace Sample {
             // get image
             XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
 
-            uint32_t  swapchainIndex;
+            uint32_t swapchainIndex;
             OPENXR_CHECK(xrAcquireSwapchainImage(viewSwapchain.handle, &acquireInfo,
-                                                  &swapchainIndex),
+                                                 &swapchainIndex),
                          "Failed to acquire swapchain image.")
 
             XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
@@ -634,14 +866,21 @@ namespace Sample {
             projectionLayerViews[i].subImage.imageRect.extent = {viewSwapchain.width,
                                                                  viewSwapchain.height};
 
-            const XrSwapchainImageBaseHeader* const swapchainImage = m_swapchainImages[viewSwapchain.handle][swapchainIndex];
-            render_view(projectionLayerViews[i],swapchainImage,m_colorSwapchainFormat,cubes);
+            const XrSwapchainImageBaseHeader *const swapchainImage = m_swapchainImages[viewSwapchain.handle][swapchainIndex];
+            render_view(projectionLayerViews[i], swapchainImage, m_colorSwapchainFormat, cubes);
 
             XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
             OPENXR_CHECK(xrReleaseSwapchainImage(viewSwapchain.handle, &releaseInfo),
                          "Failed to release swapchain image.")
         }
 
+        // important
+        layer.space = m_appSpace;
+        layer.layerFlags = environmentBlendMode == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND
+                           ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
+                             XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT : 0;
+        layer.viewCount = (uint32_t) projectionLayerViews.size();
+        layer.views = projectionLayerViews.data();
         return true;
     }
 
@@ -657,9 +896,10 @@ namespace Sample {
         std::vector<XrCompositionLayerBaseHeader *> layers;
         XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
         std::vector<XrCompositionLayerProjectionView> projectionLayerViews;
-        if (frameState.shouldRender) {
+        if (frameState.shouldRender == XR_TRUE) {
             // render layer
             if (render_layer(frameState.predictedDisplayTime, projectionLayerViews, layer)) {
+//                LOGW("###### render_frame %ld", frameState.predictedDisplayTime);
                 layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader *>(&layer));
             }
         }
@@ -711,6 +951,7 @@ namespace Sample {
         create_openxr_instance();
         initialize_system();
         initialize_device();
+        initialize_resources();
         initialize_session();
 
         create_swapchains();
@@ -748,7 +989,7 @@ namespace Sample {
             }
 
             // pollaction
-
+            render_frame();
         }
 
         LOGI("###### DetachCurrentThread");
