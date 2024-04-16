@@ -39,6 +39,11 @@ namespace Sample {
         int32_t height;
     };
 
+    struct Cube {
+        XrPosef Pose;
+        XrVector3f Scale;
+    };
+
     // properties
     void *applicationVM;
     void *applicationActivity;
@@ -69,15 +74,18 @@ namespace Sample {
     int64_t m_colorSwapchainFormat{-1};
     // color
     std::array<float, 4> m_clearColor = {0.184313729f, 0.309803933f, 0.309803933f, 1.0f};
+//    std::array<float, 4> m_clearColor = {0.0f, 0.0f, 0.0f, 0.0f};
 
     ksGpuWindow window{};
 
     GLint m_contextApiMajorVersion{0};
+    GLuint m_swapchainFramebuffer{0};
 
     XrSessionState m_sessionState{XR_SESSION_STATE_UNKNOWN};
     bool m_sessionRunning{false};
     bool requestRestart = false;
     bool exitRenderLoop = false;
+
     /**
      * Process the next main command.
      */
@@ -178,15 +186,18 @@ namespace Sample {
 
     bool IsSessionRunning() { return m_sessionRunning; }
 
-    void HandleSessionStateChangedEvent(const XrEventDataSessionStateChanged& stateChangedEvent, bool* exitRenderLoop,
-                                        bool* requestRestart) {
+    void HandleSessionStateChangedEvent(const XrEventDataSessionStateChanged &stateChangedEvent,
+                                        bool *exitRenderLoop,
+                                        bool *requestRestart) {
         const XrSessionState oldState = m_sessionState;
         m_sessionState = stateChangedEvent.state;
 
-        LOGI("XrEventDataSessionStateChanged: state %s->%s session=%lld time=%ld", to_string(oldState),
-                     to_string(m_sessionState), stateChangedEvent.session, stateChangedEvent.time);
+        LOGI("XrEventDataSessionStateChanged: state %s->%s session=%lld time=%ld",
+             to_string(oldState),
+             to_string(m_sessionState), stateChangedEvent.session, stateChangedEvent.time);
 
-        if((stateChangedEvent.session != XR_NULL_HANDLE) && (stateChangedEvent.session != m_session)){
+        if ((stateChangedEvent.session != XR_NULL_HANDLE) &&
+            (stateChangedEvent.session != m_session)) {
             LOGW("###### XrEventDataSessionStateChanged for unknown session");
             return;
         }
@@ -195,21 +206,26 @@ namespace Sample {
             case XR_SESSION_STATE_READY: {
                 XrSessionBeginInfo sessionBeginInfo{XR_TYPE_SESSION_BEGIN_INFO};
                 sessionBeginInfo.primaryViewConfigurationType = viewConfigType;
-                xrBeginSession(m_session,&sessionBeginInfo);
+                xrBeginSession(m_session, &sessionBeginInfo);
                 m_sessionRunning = true;
+
+                //TODO for test
+                std::this_thread::sleep_for(std::chrono::seconds (50));
+                LOGW("###### start xrRequestExitSession");
+                xrRequestExitSession(m_session);
                 break;
             }
-            case XR_SESSION_STATE_STOPPING:{
+            case XR_SESSION_STATE_STOPPING: {
                 m_sessionRunning = false;
                 xrEndSession(m_session);
                 break;
             }
-            case XR_SESSION_STATE_EXITING:{
+            case XR_SESSION_STATE_EXITING: {
                 *exitRenderLoop = true;
                 *requestRestart = false;
                 break;
             }
-            case XR_SESSION_STATE_LOSS_PENDING:{
+            case XR_SESSION_STATE_LOSS_PENDING: {
                 *exitRenderLoop = true;
                 *requestRestart = true;
                 break;
@@ -219,50 +235,51 @@ namespace Sample {
         }
     }
 
-    const XrEventDataBaseHeader* TryReadNextEvent() {
-        XrEventDataBaseHeader* baseHeader = reinterpret_cast<XrEventDataBaseHeader*>(&m_eventDataBuffer);
+    const XrEventDataBaseHeader *TryReadNextEvent() {
+        XrEventDataBaseHeader *baseHeader = reinterpret_cast<XrEventDataBaseHeader *>(&m_eventDataBuffer);
         *baseHeader = {XR_TYPE_EVENT_DATA_BUFFER};
         const XrResult xr = xrPollEvent(m_xrInstance, &m_eventDataBuffer);
         if (xr == XR_SUCCESS) {
             if (baseHeader->type == XR_TYPE_EVENT_DATA_EVENTS_LOST) {
-                const XrEventDataEventsLost* const eventsLost = reinterpret_cast<const XrEventDataEventsLost*>(baseHeader);
+                const XrEventDataEventsLost *const eventsLost = reinterpret_cast<const XrEventDataEventsLost *>(baseHeader);
                 LOGI("###### %d events lost", eventsLost->lostEventCount);
             }
 
             return baseHeader;
         }
 
-        if(xr ==  XR_EVENT_UNAVAILABLE){
+        if (xr == XR_EVENT_UNAVAILABLE) {
             return nullptr;
         }
 
-        THROW_XR(xr,"xrPollEvent")
+        THROW_XR(xr, "xrPollEvent")
     }
 
-    void PollEvents(bool* exitRenderLoop, bool* requestRestart){
+    void PollEvents(bool *exitRenderLoop, bool *requestRestart) {
         *exitRenderLoop = *requestRestart = false;
 
-        while (const XrEventDataBaseHeader* event = TryReadNextEvent()){
+        while (const XrEventDataBaseHeader *event = TryReadNextEvent()) {
             switch (event->type) {
-                case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:{
-                    const auto& instanceLost = *reinterpret_cast<const XrEventDataInstanceLossPending*>(event);
+                case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING: {
+                    const auto &instanceLost = *reinterpret_cast<const XrEventDataInstanceLossPending *>(event);
                     LOGI("###### XrEventDataInstanceLossPending by %ld", instanceLost.lossTime);
                     *exitRenderLoop = true;
                     *requestRestart = true;
                     return;
                 }
-                case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:{
-                    auto sessionStateChanged = *reinterpret_cast<const XrEventDataSessionStateChanged*>(event);
-                    HandleSessionStateChangedEvent(sessionStateChanged, exitRenderLoop, requestRestart);
+                case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED: {
+                    auto sessionStateChanged = *reinterpret_cast<const XrEventDataSessionStateChanged *>(event);
+                    HandleSessionStateChangedEvent(sessionStateChanged, exitRenderLoop,
+                                                   requestRestart);
                     break;
                 }
-                case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:{
+                case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED: {
                     break;
                 }
-                case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:{
+                case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
                     break;
                 }
-                default:{
+                default: {
                     LOGI("###### Ignoring event type %d", event->type);
                     break;
                 }
@@ -528,6 +545,133 @@ namespace Sample {
         }
     }
 
+    void render_view(const XrCompositionLayerProjectionView& layerView, const XrSwapchainImageBaseHeader* swapchainImage,
+                     int64_t swapchainFormat, const std::vector<Cube>& cubes){
+        glBindFramebuffer(GL_FRAMEBUFFER,m_swapchainFramebuffer);
+
+        const uint32_t colorTexture = reinterpret_cast<const XrSwapchainImageOpenGLESKHR*>(swapchainImage)->image;
+
+        glViewport(static_cast<GLint>(layerView.subImage.imageRect.offset.x),
+                   static_cast<GLint>(layerView.subImage.imageRect.offset.y),
+                   static_cast<GLsizei>(layerView.subImage.imageRect.extent.width),
+                   static_cast<GLsizei>(layerView.subImage.imageRect.extent.height));
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture, 0);
+        // Clear swapchain and depth buffer.
+        glClearColor(m_clearColor[0], m_clearColor[1], m_clearColor[2], m_clearColor[3]);
+        glClearDepthf(1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    bool render_layer(XrTime predictedDisplayTime,
+                      std::vector<XrCompositionLayerProjectionView> &projectionLayerViews,
+                      XrCompositionLayerProjection &layer) {
+
+        XrResult res;
+
+        XrViewState viewState{XR_TYPE_VIEW_STATE};
+        uint32_t viewCapacity = (uint32_t) m_views.size();
+        uint32_t viewCountOutput;
+
+        XrViewLocateInfo viewLocateInfo{XR_TYPE_VIEW_LOCATE_INFO};
+        viewLocateInfo.viewConfigurationType = viewConfigType;
+        viewLocateInfo.displayTime = predictedDisplayTime;
+        viewLocateInfo.space = m_appSpace;
+
+        res = xrLocateViews(m_session, &viewLocateInfo, &viewState, viewCapacity, &viewCountOutput,
+                            m_views.data());
+        CHECK_XRRESULT(res, "xrLocateViews")
+        if ((viewState.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT) == 0 ||
+            (viewState.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT) == 0) {
+            return false;
+        }
+
+        projectionLayerViews.resize(viewCountOutput);
+
+        // render cube
+        std::vector<Cube> cubes;
+
+        for (XrSpace visualizedSpace: m_visualizedSpaces) {
+            XrSpaceLocation spaceLocation{XR_TYPE_SPACE_LOCATION};
+            res = xrLocateSpace(visualizedSpace, m_appSpace, predictedDisplayTime, &spaceLocation);
+            CheckXrResult(res, "xrLocateSpace");
+            if (XR_UNQUALIFIED_SUCCESS(res)) {
+                if ((spaceLocation.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0 &&
+                    (spaceLocation.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0) {
+                    cubes.push_back(Cube{spaceLocation.pose, {0.25f, 0.25f, 0.25f}});
+                }
+            } else {
+                LOGI("###### Unable to locate a visualized reference space in app space: %d", res);
+            }
+        }
+
+        // render hand
+
+        // render view
+        for (uint32_t i = 0; i < viewCountOutput; i++) {
+            const Swapchain viewSwapchain = m_swapchains[i];
+
+            // get image
+            XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+
+            uint32_t  swapchainIndex;
+            OPENXR_CHECK(xrAcquireSwapchainImage(viewSwapchain.handle, &acquireInfo,
+                                                  &swapchainIndex),
+                         "Failed to acquire swapchain image.")
+
+            XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            waitInfo.timeout = XR_INFINITE_DURATION;
+            OPENXR_CHECK(xrWaitSwapchainImage(viewSwapchain.handle, &waitInfo),
+                         "Failed to wait swapchain image.")
+
+            projectionLayerViews[i] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+            projectionLayerViews[i].pose = m_views[i].pose;
+            projectionLayerViews[i].fov = m_views[i].fov;
+            projectionLayerViews[i].subImage.swapchain = viewSwapchain.handle;
+            projectionLayerViews[i].subImage.imageRect.offset = {0, 0};
+            projectionLayerViews[i].subImage.imageRect.extent = {viewSwapchain.width,
+                                                                 viewSwapchain.height};
+
+            const XrSwapchainImageBaseHeader* const swapchainImage = m_swapchainImages[viewSwapchain.handle][swapchainIndex];
+            render_view(projectionLayerViews[i],swapchainImage,m_colorSwapchainFormat,cubes);
+
+            XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            OPENXR_CHECK(xrReleaseSwapchainImage(viewSwapchain.handle, &releaseInfo),
+                         "Failed to release swapchain image.")
+        }
+
+        return true;
+    }
+
+    void render_frame() {
+        XrFrameWaitInfo frameWaitInfo{XR_TYPE_FRAME_WAIT_INFO};
+        XrFrameState frameState{XR_TYPE_FRAME_STATE};
+        OPENXR_CHECK(xrWaitFrame(m_session, &frameWaitInfo, &frameState),
+                     "Failed to wait frame.")
+
+        XrFrameBeginInfo frameBeginInfo{XR_TYPE_FRAME_BEGIN_INFO};
+        OPENXR_CHECK(xrBeginFrame(m_session, &frameBeginInfo), "Failed to begin frame.")
+
+        std::vector<XrCompositionLayerBaseHeader *> layers;
+        XrCompositionLayerProjection layer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+        std::vector<XrCompositionLayerProjectionView> projectionLayerViews;
+        if (frameState.shouldRender) {
+            // render layer
+            if (render_layer(frameState.predictedDisplayTime, projectionLayerViews, layer)) {
+                layers.push_back(reinterpret_cast<XrCompositionLayerBaseHeader *>(&layer));
+            }
+        }
+
+        XrFrameEndInfo frameEndInfo{XR_TYPE_FRAME_END_INFO};
+        frameEndInfo.displayTime = frameState.predictedDisplayTime;
+        frameEndInfo.environmentBlendMode = environmentBlendMode;
+        frameEndInfo.layerCount = (uint32_t) layers.size();
+        frameEndInfo.layers = layers.data();
+        OPENXR_CHECK(xrEndFrame(m_session, &frameEndInfo), "Failed to end frame.")
+    }
+
     extern "C"
     void android_main(struct android_app *app) {
         JNIEnv *Env;
@@ -571,6 +715,8 @@ namespace Sample {
 
         create_swapchains();
 
+
+        LOGI("###### Enter Loop Render");
         // loop
         while (app->destroyRequested == 0) {
             // read all pending events;
@@ -579,7 +725,7 @@ namespace Sample {
                 struct android_poll_source *source;
                 const int timeoutMilliseconds = (!appState.Resumed && IsSessionRunning() &&
                                                  app->destroyRequested == 0) ? -1 : 0;
-                if(ALooper_pollAll(timeoutMilliseconds, nullptr, &events, (void **) &source) < 0){
+                if (ALooper_pollAll(timeoutMilliseconds, nullptr, &events, (void **) &source) < 0) {
                     break;
                 }
 
@@ -591,12 +737,12 @@ namespace Sample {
 
             // poll events
             PollEvents(&exitRenderLoop, &requestRestart);
-            if(exitRenderLoop){
+            if (exitRenderLoop) {
                 ANativeActivity_finish(app->activity);
                 continue;
             }
 
-            if(!IsSessionRunning()){
+            if (!IsSessionRunning()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 continue;
             }
@@ -605,6 +751,7 @@ namespace Sample {
 
         }
 
+        LOGI("###### DetachCurrentThread");
         app->activity->vm->DetachCurrentThread();
     }
 }
