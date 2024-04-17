@@ -315,7 +315,6 @@ This file contains expansion macros (X Macros) for OpenXR structures.
     _avail(XrPlaneDetectorLocationEXT, XR_TYPE_PLANE_DETECTOR_LOCATION_EXT) \
     _avail(XrPlaneDetectorLocationsEXT, XR_TYPE_PLANE_DETECTOR_LOCATIONS_EXT) \
     _avail(XrPlaneDetectorPolygonBufferEXT, XR_TYPE_PLANE_DETECTOR_POLYGON_BUFFER_EXT) \
-    _avail(XrPlaneDetectoraGetChangesRokidExt, XR_TYPE_PLANE_DETECTOR_GET_CHANGES_ROKID_EXT) \
 
 
 #if defined(XR_USE_GRAPHICS_API_D3D11)

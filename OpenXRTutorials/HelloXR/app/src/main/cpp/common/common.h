@@ -11,7 +11,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 
-#include <openxr/openxr_reflection.h>
+#include "../openxr/openxr_reflection.h"
 
 // Macro to generate stringify functions for OpenXR enumerations based data provided in openxr_reflection.h
 // clang-format off

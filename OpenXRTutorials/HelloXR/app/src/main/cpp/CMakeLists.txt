@@ -5,7 +5,7 @@ project("${PROJECT_NAME}")
 
 message("CMake Project Name: ${PROJECT_NAME}")
 message("CMake Binary: ${CMAKE_CURRENT_BINARY_DIR}")
-message("NDK Path: ${ANDROID_NDK}")
+message("ANDROID ABI: ${ANDROID_ABI}")
 
 if(ANDROID)
     add_definitions(-DXR_USE_PLATFORM_ANDROID -DXR_USE_GRAPHICS_API_OPENGL_ES)
@@ -63,18 +63,24 @@ if(TARGET openxr-gfxwrapper)
     target_link_libraries(${PROJECT_NAME} openxr-gfxwrapper)
 endif()
 
-target_link_libraries(${PROJECT_NAME} OpenXR::openxr_loader)
+# oepnxr_loader.so
+add_library(rokid_loader SHARED IMPORTED)
+set_target_properties(rokid_loader PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/openxr/lib/${ANDROID_ABI}/libopenxr_loader.so)
+
+#official
+#target_link_libraries(${PROJECT_NAME} OpenXR::openxr_loader)
+
 target_link_libraries(${PROJECT_NAME} ${ANDROID_LIBRARY} ${ANDROID_LOG_LIBRARY})
 
 target_link_libraries(${PROJECT_NAME}
         native_app_glue
-        openxr_loader
+        rokid_loader
         EGL
         GLESv3)
 
 target_include_directories(${PROJECT_NAME}
         PRIVATE
-        "openxr/src"
+        "openxr/src/openxr"
         "${openxr_SOURCE_DIR}/src"
         "${openxr_SOURCE_DIR}/external/include"
 )

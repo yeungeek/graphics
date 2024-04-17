@@ -107,8 +107,6 @@ typedef unsigned __int64 uint64_t;
 #define XR_CPP_NULLPTR_SUPPORTED 0
 #endif  // !defined(XR_CPP_NULLPTR_SUPPORTED)
 
-#define USE_ROKID_OPENXR_SDK
-
 #ifdef __cplusplus
 }
 #endif

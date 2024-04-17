@@ -17,7 +17,7 @@
 #include <map>
 #include <thread>
 
-#include "openxr/openxr_platform.h"
+#include "../openxr/openxr_platform.h"
 #include "common/openxr_helper.h"
 #include "common/gfxwrapper_opengl.h"
 #include "common/common.h"

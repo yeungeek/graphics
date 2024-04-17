@@ -25,6 +25,15 @@
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
     <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
 
+    <!-- (可选) 权限相关 -->
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="true"/>
+    <uses-feature android:name="android.hardware.sensor.gyroscope" android:required="true"/>
+    <uses-feature android:name="android.hardware.usb.host"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <queries>
         <!-- to talk to the broker -->
         <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
@@ -39,12 +48,18 @@
     </queries>
     <!-- end of elements normally merged from the OpenXR loader AAR -->
 
+    <!-- (必须) 查询Runtime -->
+    <queries>
+        <package android:name="com.rokid.openxr.runtime" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true">
+        android:supportsRtl="true"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name="android.app.NativeActivity"
             android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode"
@@ -65,6 +80,11 @@
                 <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
             </intent-filter>
         </activity>
+
+        <!-- (必须) 以下meta-data确保编译出来的应用可以在launcher中显示 -->
+        <meta-data android:name="com.rokid.sdk" android:value="uxr"/>
+        <meta-data android:name="com.rokid.uxr.application.mode" android:value="3d" />
+        <meta-data android:name="android.allow_multiple_resumed_activities" android:value="true"/>
     </application>
 
 </manifest>

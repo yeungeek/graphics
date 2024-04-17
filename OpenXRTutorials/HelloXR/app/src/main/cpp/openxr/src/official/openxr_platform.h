@@ -370,7 +370,6 @@ XRAPI_ATTR XrResult XRAPI_CALL xrConvertTimeToWin32PerformanceCounterKHR(
 #endif /* !XR_NO_PROTOTYPES */
 #endif /* XR_USE_PLATFORM_WIN32 */
 
-#define XR_USE_TIMESPEC
 #ifdef XR_USE_TIMESPEC
 
 #define XR_KHR_convert_timespec_time 1

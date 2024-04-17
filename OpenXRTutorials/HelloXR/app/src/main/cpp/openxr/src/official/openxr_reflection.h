@@ -434,7 +434,6 @@ XR_ENUM_STR(XrResult);
     _(XR_TYPE_PLANE_DETECTOR_LOCATION_EXT, 1000429005) \
     _(XR_TYPE_PLANE_DETECTOR_POLYGON_BUFFER_EXT, 1000429006) \
     _(XR_TYPE_SYSTEM_PLANE_DETECTION_PROPERTIES_EXT, 1000429007) \
-    _(XR_TYPE_PLANE_DETECTOR_GET_CHANGES_ROKID_EXT, 1000523000) \
     _(XR_STRUCTURE_TYPE_MAX_ENUM, 0x7FFFFFFF)
 
 #define XR_LIST_ENUM_XrFormFactor(_) \
@@ -3989,16 +3988,6 @@ XR_ENUM_STR(XrResult);
     _(vertexCountOutput) \
     _(vertices) \
 
-/// Calls your macro with the name of each member of XrPlaneDetectoraGetChangesRokidExt, in order.
-#define XR_LIST_STRUCT_XrPlaneDetectoraGetChangesRokidExt(_) \
-    _(type) \
-    _(addPlanes) \
-    _(updatePlanes) \
-    _(removePlanes) \
-    _(addPlanesSize) \
-    _(updatePlanesSize) \
-    _(removePlanesSize) \
-
 
 
 /// Calls your macro with the structure type name and the XrStructureType constant for
@@ -4295,7 +4284,6 @@ XR_ENUM_STR(XrResult);
     _(XrPlaneDetectorLocationEXT, XR_TYPE_PLANE_DETECTOR_LOCATION_EXT) \
     _(XrPlaneDetectorLocationsEXT, XR_TYPE_PLANE_DETECTOR_LOCATIONS_EXT) \
     _(XrPlaneDetectorPolygonBufferEXT, XR_TYPE_PLANE_DETECTOR_POLYGON_BUFFER_EXT) \
-    _(XrPlaneDetectoraGetChangesRokidExt, XR_TYPE_PLANE_DETECTOR_GET_CHANGES_ROKID_EXT) \
 
 
 #if defined(XR_USE_GRAPHICS_API_D3D11)
@@ -4601,7 +4589,6 @@ XR_ENUM_STR(XrResult);
     _(XR_EXT_plane_detection, 430) \
     _(XR_OPPO_controller_interaction, 454) \
     _(XR_YVR_controller_interaction, 498) \
-    _(XR_EXT_rokid, 524) \
 
 
 #endif
