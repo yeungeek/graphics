@@ -874,7 +874,7 @@ namespace Sample {
                          "Failed to release swapchain image.")
         }
 
-        // important
+        //TODO important
         layer.space = m_appSpace;
         layer.layerFlags = environmentBlendMode == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND
                            ? XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
