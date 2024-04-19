@@ -28,8 +28,15 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define strcpy_s(dest, source) strncpy((dest), (source), sizeof(dest))
 
 namespace Sample {
+
+    namespace Side {
+        const int LEFT = 0;
+        const int RIGHT = 1;
+        const int COUNT = 2;
+    }  // namespace Side
 
     static const char *VertexShaderGlsl = R"_(#version 320 es
 
@@ -72,6 +79,19 @@ namespace Sample {
     struct Cube {
         XrPosef Pose;
         XrVector3f Scale;
+    };
+
+    struct InputState{
+        XrActionSet actionSet{XR_NULL_HANDLE};
+        XrAction grabAction{XR_NULL_HANDLE};
+        XrAction poseAction{XR_NULL_HANDLE};
+        XrAction vibrateAction{XR_NULL_HANDLE};
+        XrAction quitAction{XR_NULL_HANDLE};
+
+        std::array<XrPath,Side::COUNT> handSubactionPath;
+        std::array<XrSpace,Side::COUNT> handSpace;
+        std::array<float,Side::COUNT> handScale = {{1.0f,1.0f}};
+        std::array<XrBool32,Side::COUNT> handActive;
     };
 
     // properties
@@ -124,6 +144,8 @@ namespace Sample {
     bool m_sessionRunning{false};
     bool requestRestart = false;
     bool exitRenderLoop = false;
+
+    InputState m_input;
 
     /**
      * Process the next main command.
@@ -466,6 +488,8 @@ namespace Sample {
                        std::back_inserter(extensions),
                        [](const std::string &ext) { return ext.c_str(); });
 
+        //TODO hand tracking
+
         XrInstanceCreateInfo createInfo{XR_TYPE_INSTANCE_CREATE_INFO};
         createInfo.next = (XrBaseInStructure *) &instanceCreateInfoAndroid;
         createInfo.enabledExtensionCount = (uint32_t) extensions.size();
@@ -698,6 +722,80 @@ namespace Sample {
         // init resources
     }
 
+    void initialize_actions(){
+        XrActionSetCreateInfo actionSetCreateInfo{XR_TYPE_ACTION_SET_CREATE_INFO};
+        strcpy_s(actionSetCreateInfo.actionSetName, "gameplay");
+        strcpy_s(actionSetCreateInfo.localizedActionSetName, "Gameplay");
+        actionSetCreateInfo.priority = 0;
+        OPENXR_CHECK(xrCreateActionSet(m_xrInstance, &actionSetCreateInfo, &m_input.actionSet),
+                     "Failed to create action set.")
+
+
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left", &m_input.handSubactionPath[Side::LEFT]),"failed instance left hand")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right", &m_input.handSubactionPath[Side::RIGHT]),"failed instance right hand")
+
+        // Create actions
+        {
+            XrActionCreateInfo actionInfo{XR_TYPE_ACTION_CREATE_INFO};
+            actionInfo.actionType = XR_ACTION_TYPE_FLOAT_INPUT;
+            strcpy_s(actionInfo.actionName, "grab_object");
+            strcpy_s(actionInfo.localizedActionName, "Grab Object");
+            actionInfo.countSubactionPaths = uint32_t(m_input.handSubactionPath.size());
+            actionInfo.subactionPaths = m_input.handSubactionPath.data();
+            OPENXR_CHECK(xrCreateAction(m_input.actionSet, &actionInfo, &m_input.grabAction), "failed create grab object action")
+
+
+            actionInfo.actionType = XR_ACTION_TYPE_POSE_INPUT;
+            strcpy_s(actionInfo.actionName, "hand_pose");
+            strcpy_s(actionInfo.localizedActionName, "Hand Pose");
+            actionInfo.countSubactionPaths = uint32_t(m_input.handSubactionPath.size());
+            actionInfo.subactionPaths = m_input.handSubactionPath.data();
+            OPENXR_CHECK(xrCreateAction(m_input.actionSet, &actionInfo, &m_input.poseAction), "failed create pose action")
+
+            actionInfo.actionType = XR_ACTION_TYPE_BOOLEAN_INPUT;
+            strcpy_s(actionInfo.actionName, "quit_session");
+            strcpy_s(actionInfo.localizedActionName, "Quit Session");
+            actionInfo.countSubactionPaths = 0;
+            actionInfo.subactionPaths = nullptr;
+            OPENXR_CHECK(xrCreateAction(m_input.actionSet, &actionInfo, &m_input.quitAction), "failed create quit action");
+        }
+
+        // select path
+        std::array<XrPath, Side::COUNT> selectPath;
+        std::array<XrPath, Side::COUNT> squeezeValuePath;
+        std::array<XrPath, Side::COUNT> squeezeForcePath;
+        std::array<XrPath, Side::COUNT> squeezeClickPath;
+        std::array<XrPath, Side::COUNT> posePath;
+        std::array<XrPath, Side::COUNT> hapticPath;
+        std::array<XrPath, Side::COUNT> menuClickPath;
+        std::array<XrPath, Side::COUNT> bClickPath;
+        std::array<XrPath, Side::COUNT> triggerValuePath;
+
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/select/click", &selectPath[Side::LEFT]),"failed left click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/select/click", &selectPath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/squeeze/value", &squeezeValuePath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/squeeze/value", &squeezeValuePath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/squeeze/force", &squeezeForcePath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/squeeze/force", &squeezeForcePath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/squeeze/click", &squeezeClickPath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/squeeze/click", &squeezeClickPath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/grip/pose", &posePath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/grip/pose", &posePath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/output/haptic", &hapticPath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/output/haptic", &hapticPath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/menu/click", &menuClickPath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/menu/click", &menuClickPath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/b/click", &bClickPath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/b/click", &bClickPath[Side::RIGHT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/left/input/trigger/value", &triggerValuePath[Side::LEFT]),"failed right click")
+        OPENXR_CHECK(xrStringToPath(m_xrInstance, "/user/hand/right/input/trigger/value", &triggerValuePath[Side::RIGHT]),"failed right click")
+
+        // Suggest bindings for KHR Simple.
+        {
+
+        }
+    }
+
     void initialize_session() {
         LOGI("###### initialize session");
         XrSessionCreateInfo sessionCreateInfo{XR_TYPE_SESSION_CREATE_INFO};
@@ -719,9 +817,8 @@ namespace Sample {
             LOGI("###### reference name: %s", to_string(space));
         }
 
-        //TODO actions
-        //TODO visualizedSpaces
-
+        // actions
+        initialize_actions();
         create_visualized_spaces();
 
         {
